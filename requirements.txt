@@ -1,0 +1,5 @@
+# Python dependencies for analysis and figure-generation scripts.
+# Core experiment runners use the Python standard library.
+matplotlib>=3.7
+numpy>=1.24
+seaborn>=0.12

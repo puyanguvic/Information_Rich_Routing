@@ -1,7 +1,7 @@
-# Exp3 Nokia SR Linux Device Validation
+# Nokia SR Linux 2x2 Clos Testbed
 
-This directory implements the paper's third experiment: a device-realistic
-containerlab validation with Nokia SR Linux routers.
+This directory contains the device-realistic containerlab validation topology
+used by the paper's product-router experiment.
 
 The topology is a 2x2 Clos slice:
 
@@ -31,12 +31,28 @@ python3 tools/run_containerlab_recovery_cdf.py \
   --keep-lab
 ```
 
-Artifacts:
+Recovery experiment artifacts:
 
-- `report.json`: run metadata and row-level results.
-- `command-log.jsonl`: every containerlab/docker command.
+- `containerlab_recovery_events.csv`: per-event recovery rows.
+- timestamped run directories with `summary.md` and raw ping outputs.
+
+Governor-stress artifacts:
+
+- `containerlab_governor_stress.csv`: per-trial proposal/action rows.
+- timestamped run directories with `governor_summary.md`.
+
+The older YAML matrix in `exp3_nokia_srlinux.yaml` is retained as a lower-level
+scenario specification for manual device-validation runs. It records:
+
+- command groups for clear, fault, ECMP restore, and IR suppression actions.
+- policy/probe definitions.
+- scenario-level setup and cleanup ordering.
+
+Raw artifacts may include:
+
+- `command-log.jsonl`: containerlab/docker command records.
 - `summary.csv`: table-ready metric rows.
-- `summary.md`: compact human-readable table.
+- `summary.md`: compact human-readable tables.
 - `raw/`: raw probe outputs and route snapshots.
 
 The class-aware scenario includes a no-op device policy hook by default. Replace

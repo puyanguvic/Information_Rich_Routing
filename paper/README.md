@@ -1,5 +1,15 @@
-# Paper Scripts
+# Paper-Facing Scripts
 
-This directory keeps paper-facing figure scripts with the code artifact. The
-scripts expect generated experiment outputs under `results/` by default, or an
-external result tree supplied through `IR_NS3_RESULTS` / `IR_NS3_RUN_DIR`.
+This directory keeps figure scripts with the code artifact so the paper can
+reference one repository for source, experiment runners, and post-processing.
+
+The scripts expect generated experiment outputs under `results/` by default. To
+reuse an external ns-3 result tree:
+
+```bash
+export IR_NS3_RESULTS=/path/to/results/information-routing
+export IR_NS3_RUN_DIR=/path/to/results/information-routing/eval-v5-...
+```
+
+Generated figures and tables should remain outside Git unless they are small,
+deliberate fixtures.
