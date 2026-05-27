@@ -38,6 +38,13 @@ The check is intentionally dependency-light. It validates required files, JSON
 syntax, Python syntax, containerlab startup-config references, trace CSV headers,
 and accidental local absolute paths.
 
+## License
+
+This artifact is licensed under the GNU General Public License v2.0 only
+(`GPL-2.0-only`). The ns-3 module is intended to be built as an ns-3 contrib
+module, and ns-3 itself is distributed under `GPL-2.0-only`; using the same
+license keeps the artifact compatible with the simulator ecosystem.
+
 ## ns-3 Simulation Artifact
 
 The ns-3 code is stored in the native contrib layout:
@@ -94,4 +101,3 @@ paper-ready tables and figures. They do not contain raw large result trees.
 - Reproducibility instructions are in `docs/ARTIFACT_EVALUATION.md`.
 - Generated result handling is described in `docs/RESULTS_AND_DATA.md`.
 - Public-release tasks are tracked in `docs/OPEN_SOURCE_CHECKLIST.md`.
-- A formal open-source license still needs to be selected before public release.

@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_PATHS = [
+    "LICENSE",
     "README.md",
     "CONTRIBUTING.md",
     "docs/ARTIFACT_EVALUATION.md",
@@ -125,6 +126,13 @@ def check_required_paths() -> CheckResult:
     for item in REQUIRED_PATHS:
         if not (ROOT / item).exists():
             errors.append(f"missing required path: {item}")
+    license_path = ROOT / "LICENSE"
+    license_text = license_path.read_text(encoding="utf-8") if license_path.exists() else ""
+    if (
+        "GNU GENERAL PUBLIC LICENSE" not in license_text
+        or "Version 2, June 1991" not in license_text
+    ):
+        errors.append("LICENSE is not GPL version 2 text")
     return CheckResult("required paths", errors)
 
 

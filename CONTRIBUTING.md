@@ -19,6 +19,11 @@ Do not commit:
 - raw large experiment outputs unless they are deliberately added as a small
   fixture
 
+## License
+
+Contributions to this repository are expected to be compatible with
+`GPL-2.0-only`, matching the ns-3 simulator license.
+
 ## Code organization
 
 - Keep ns-3 source in `ns3/contrib/information-routing/` so it can be copied or

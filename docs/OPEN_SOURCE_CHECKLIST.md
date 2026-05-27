@@ -2,7 +2,8 @@
 
 Complete these items before making the repository public.
 
-- Choose and add a formal open-source license.
+- Confirm the `GPL-2.0-only` license and copyright-holder line are acceptable
+  for public release.
 - Add the final paper citation once the title/authors/venue metadata is fixed.
 - Decide whether a separate archival result bundle is needed for full
   reproducibility.
