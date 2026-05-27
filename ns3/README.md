@@ -16,6 +16,16 @@ ns-3 checkout as:
 contrib/information-routing
 ```
 
+Validated ns-3 checkout:
+
+```text
+VERSION: 3-dev
+COMMIT: 80ffa6e66e9c59d7e80c324576daaf574ba3481b
+```
+
+The pinned version is recorded in `NS3_VERSION`. See `../docs/NS3_SETUP.md` for
+clone, checkout, build, and smoke-test commands.
+
 Typical setup:
 
 ```bash

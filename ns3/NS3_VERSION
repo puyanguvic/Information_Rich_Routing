@@ -1,0 +1,5 @@
+NS3_VERSION=3-dev
+NS3_COMMIT=80ffa6e66e9c59d7e80c324576daaf574ba3481b
+NS3_COMMIT_DATE=2026-05-05
+NS3_SOURCE_GITHUB=https://github.com/nsnam/ns-3-dev-git.git
+NS3_SOURCE_GITLAB=https://gitlab.com/nsnam/ns-3-dev.git

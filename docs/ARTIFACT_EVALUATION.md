@@ -23,7 +23,18 @@ This validates:
 
 ## 2. ns-3 Smoke Test
 
-Install or clone ns-3 separately, then symlink the module:
+Install or clone ns-3 separately. The validated ns-3 version is pinned in
+`ns3/NS3_VERSION`:
+
+```text
+NS3_VERSION=3-dev
+NS3_COMMIT=80ffa6e66e9c59d7e80c324576daaf574ba3481b
+```
+
+If the machine does not already have ns-3, follow `docs/NS3_SETUP.md` to clone
+the pinned checkout under `~/ns-3-dev-git`.
+
+Then symlink the module:
 
 ```bash
 ln -s /path/to/Information_Rich_Routing/ns3/contrib/information-routing \
@@ -60,6 +71,8 @@ The parallel launcher is:
 ```bash
 ns3/contrib/information-routing/utils/run_eval_v5_parallel.sh
 ```
+
+See `docs/NS3_SETUP.md` for a complete command sequence.
 
 Useful environment variables:
 

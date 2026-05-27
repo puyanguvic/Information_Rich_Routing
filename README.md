@@ -53,6 +53,11 @@ The ns-3 code is stored in the native contrib layout:
 ns3/contrib/information-routing
 ```
 
+The module is validated against ns-3 `3-dev` at commit
+`80ffa6e66e9c59d7e80c324576daaf574ba3481b`. The pinned version and source URLs
+are recorded in `ns3/NS3_VERSION`. Full setup instructions are in
+`docs/NS3_SETUP.md`.
+
 Use it by copying or symlinking the module into an ns-3 checkout:
 
 ```bash
@@ -99,5 +104,6 @@ paper-ready tables and figures. They do not contain raw large result trees.
 ## Artifact Notes
 
 - Reproducibility instructions are in `docs/ARTIFACT_EVALUATION.md`.
+- ns-3 installation instructions are in `docs/NS3_SETUP.md`.
 - Generated result handling is described in `docs/RESULTS_AND_DATA.md`.
 - Public-release tasks are tracked in `docs/OPEN_SOURCE_CHECKLIST.md`.

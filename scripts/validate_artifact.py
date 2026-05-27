@@ -18,7 +18,9 @@ REQUIRED_PATHS = [
     "README.md",
     "CONTRIBUTING.md",
     "docs/ARTIFACT_EVALUATION.md",
+    "docs/NS3_SETUP.md",
     "docs/RESULTS_AND_DATA.md",
+    "ns3/NS3_VERSION",
     "ns3/contrib/information-routing/CMakeLists.txt",
     "ns3/contrib/information-routing/model/information-routing.cc",
     "ns3/contrib/information-routing/model/information-routing.h",
@@ -77,12 +79,13 @@ FORBIDDEN_PATTERNS = [
     (re.compile(r"/home/[A-Za-z0-9_.-]+/"), "developer home directory"),
     (re.compile("Projects/" + "romam"), "old romam checkout path"),
     (re.compile("NSDI2027-" + "Toward"), "paper-worktree absolute path"),
-    (re.compile("ns-3-" + "dev-git"), "developer ns-3 checkout path"),
+    (re.compile("Projects/" + "ns-3-" + "dev-git"), "developer ns-3 checkout path"),
     (re.compile("Co-Authored" + "-By:"), "commit metadata in source files"),
     (re.compile("Clau" + "de"), "assistant metadata in source files"),
 ]
 
 TRACE_HEADER = ["t_start_s", "src", "dst", "bytes", "tos"]
+NS3_COMMIT = "80ffa6e66e9c59d7e80c324576daaf574ba3481b"
 
 
 @dataclass
@@ -198,6 +201,21 @@ def check_trace_headers() -> CheckResult:
     return CheckResult("trace csv headers", errors)
 
 
+def check_ns3_version_pin() -> CheckResult:
+    errors = []
+    version_path = ROOT / "ns3/NS3_VERSION"
+    docs_path = ROOT / "docs/NS3_SETUP.md"
+    version_text = version_path.read_text(encoding="utf-8") if version_path.exists() else ""
+    docs_text = docs_path.read_text(encoding="utf-8") if docs_path.exists() else ""
+    if "NS3_VERSION=3-dev" not in version_text:
+        errors.append("ns3/NS3_VERSION does not record NS3_VERSION=3-dev")
+    if f"NS3_COMMIT={NS3_COMMIT}" not in version_text:
+        errors.append("ns3/NS3_VERSION does not record the validated ns-3 commit")
+    if NS3_COMMIT not in docs_text:
+        errors.append("docs/NS3_SETUP.md does not mention the validated ns-3 commit")
+    return CheckResult("ns-3 version pin", errors)
+
+
 def run_checks() -> list[CheckResult]:
     files = iter_repo_files()
     return [
@@ -207,6 +225,7 @@ def run_checks() -> list[CheckResult]:
         check_forbidden_paths(files),
         check_containerlab_topology(),
         check_trace_headers(),
+        check_ns3_version_pin(),
     ]
 
 
