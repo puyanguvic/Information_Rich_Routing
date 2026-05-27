@@ -1,0 +1,81 @@
+{
+  "common": {
+    "topology": "ring",
+    "ringNodes": 6,
+    "kPaths": 2,
+    "startTime": 0.5,
+    "stopTime": 3,
+    "simStopTime": 4,
+    "sampleInterval": 1
+  },
+  "seeds": [1],
+  "protocols": [
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "smoke_udp_client_timestamp_tos",
+      "args": {
+        "traffic": "incast",
+        "flowCount": 4,
+        "appMode": "udp-client",
+        "flowRate": "2Mbps",
+        "packetSize": 1000,
+        "startJitter": 0.2,
+        "tosProfile": "latency-bulk",
+        "tosAware": true
+      }
+    },
+    {
+      "name": "smoke_onoff_udp_burst",
+      "args": {
+        "traffic": "incast",
+        "flowCount": 4,
+        "appMode": "onoff",
+        "transport": "udp",
+        "flowRate": "3Mbps",
+        "packetSize": 1000,
+        "onTime": "ns3::ConstantRandomVariable[Constant=0.25]",
+        "offTime": "ns3::ConstantRandomVariable[Constant=0.25]"
+      }
+    },
+    {
+      "name": "smoke_tcp_bulk_bbr_mice_elephant",
+      "args": {
+        "traffic": "bipartite",
+        "flowCount": 4,
+        "appMode": "tcp-bulk",
+        "tcpVariant": "TcpBbr",
+        "bulkSendSize": 1448,
+        "miceEvery": 2,
+        "miceMaxBytes": 50000,
+        "elephantMaxBytes": 200000
+      }
+    },
+    {
+      "name": "smoke_refresh_damping_counters",
+      "args": {
+        "traffic": "incast",
+        "flowCount": 4,
+        "appMode": "udp-client",
+        "flowRate": "2Mbps",
+        "packetSize": 1000,
+        "congestedLink": 0,
+        "congestionTime": 1.5,
+        "congestionEndTime": 3.5,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.5,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5,
+        "metricNoise": 0.1,
+        "tosProfile": "latency-bulk",
+        "tosAware": true
+      }
+    }
+  ]
+}

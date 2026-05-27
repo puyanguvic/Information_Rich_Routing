@@ -1,0 +1,168 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 16,
+    "simStopTime": 17,
+    "sampleInterval": 0.25,
+    "startJitter": 0.25
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "round_robin",
+      "args": {
+        "selectorMode": 1
+      }
+    },
+    {
+      "name": "load_aware_ecmp",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 1.0,
+        "hysteresisThreshold": 0.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "conga_like",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.7,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 50.0,
+        "updateBudgetPerSec": 200.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "exp1_mechanism_k1",
+      "args": {
+        "kPaths": 1,
+        "traffic": "hotspot",
+        "flowCount": 32,
+        "flowRate": "25Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "exp1_mechanism_k2",
+      "args": {
+        "kPaths": 2,
+        "traffic": "hotspot",
+        "flowCount": 32,
+        "flowRate": "25Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "exp1_mechanism_k4",
+      "args": {
+        "kPaths": 4,
+        "traffic": "hotspot",
+        "flowCount": 32,
+        "flowRate": "25Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "exp1_mechanism_k8",
+      "args": {
+        "kPaths": 8,
+        "traffic": "hotspot",
+        "flowCount": 32,
+        "flowRate": "25Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    }
+  ]
+}

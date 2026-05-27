@@ -1,0 +1,177 @@
+lab_name: exp3-nokia-ir
+topology_file: clos2x2_srlinux.clab.yaml
+wait_after_deploy_s: 75
+
+env:
+  CLAB_LAB_NAME: exp3-nokia-ir
+  NOKIA_SRL_IMAGE: ghcr.io/nokia/srlinux:latest
+  NOKIA_SRL_TYPE: ixr-d2l
+  HOST_IMAGE: ghcr.io/srl-labs/network-multitool:latest
+
+bootstrap_groups:
+  - host_base
+
+command_groups:
+  host_base:
+    - label: h1_addr
+      node: h1
+      command: ip link set eth1 up && ip addr replace 10.30.1.2/24 dev eth1 && ip route replace default via 10.30.1.1
+    - label: h2_addr
+      node: h2
+      command: ip link set eth1 up && ip addr replace 10.30.2.2/24 dev eth1 && ip route replace default via 10.30.2.1
+
+  clear_all_faults:
+    - {label: clear_l1_e1_1, node: l1, command: "tc qdisc del dev e1-1 root 2>/dev/null || true", allow_failure: true}
+    - {label: clear_l1_e1_2, node: l1, command: "tc qdisc del dev e1-2 root 2>/dev/null || true", allow_failure: true}
+    - {label: clear_s1_e1_1, node: s1, command: "tc qdisc del dev e1-1 root 2>/dev/null || true", allow_failure: true}
+    - {label: clear_s2_e1_1, node: s2, command: "tc qdisc del dev e1-1 root 2>/dev/null || true", allow_failure: true}
+    - {label: clear_h1_eth1, node: h1, command: "tc qdisc del dev eth1 root 2>/dev/null || true", allow_failure: true}
+    - {label: clear_h2_eth1, node: h2, command: "tc qdisc del dev eth1 root 2>/dev/null || true", allow_failure: true}
+
+  restore_ecmp:
+    - label: l1_restore_ecmp
+      node: l1
+      command: "printf '%s\n' 'enter candidate' 'set / network-instance default static-routes route 10.30.2.0/24 next-hop-group l2_ecmp' 'commit now' | sr_cli"
+    - label: l2_restore_ecmp
+      node: l2
+      command: "printf '%s\n' 'enter candidate' 'set / network-instance default static-routes route 10.30.1.0/24 next-hop-group l1_ecmp' 'commit now' | sr_cli"
+
+  bounded_ir_suppress_s1:
+    - label: l1_suppress_s1_branch
+      node: l1
+      command: "printf '%s\n' 'enter candidate' 'set / network-instance default static-routes route 10.30.2.0/24 next-hop-group l2_via_s2' 'commit now' | sr_cli"
+      sleep_after_s: 1
+    - label: l2_suppress_s1_branch
+      node: l2
+      command: "printf '%s\n' 'enter candidate' 'set / network-instance default static-routes route 10.30.1.0/24 next-hop-group l1_via_s2' 'commit now' | sr_cli"
+      sleep_after_s: 1
+
+  degrade_s1_branch:
+    - label: degrade_l1_to_s1
+      node: l1
+      command: tc qdisc replace dev e1-1 root netem delay 60ms 5ms loss 1% rate 25mbit
+      sleep_after_s: 1
+    - label: degrade_s1_to_l1
+      node: s1
+      command: tc qdisc replace dev e1-1 root netem delay 60ms 5ms loss 1% rate 25mbit
+      allow_failure: true
+
+  burst_s1_branch:
+    - label: burst_l1_to_s1
+      node: l1
+      command: tc qdisc replace dev e1-1 root netem delay 120ms 10ms loss 3% rate 8mbit
+      sleep_after_s: 1
+    - label: burst_s1_to_l1
+      node: s1
+      command: tc qdisc replace dev e1-1 root netem delay 120ms 10ms loss 3% rate 8mbit
+      allow_failure: true
+
+  bounded_ir_class_hook:
+    - label: class_policy_placeholder
+      node: l1
+      command: "true"
+    - label: class_policy_reverse_placeholder
+      node: l2
+      command: "true"
+
+policies:
+  static_ecmp:
+    description: "Device default: keep the static ECMP next-hop group active."
+    setup_groups: [restore_ecmp]
+  bounded_ir:
+    description: "Governed IR hook: keep ECMP unless a scenario supplies evidence-specific actions."
+    setup_groups: [restore_ecmp]
+
+probes:
+  ping_default:
+    parser: ping
+    traffic_class: best_effort
+    node: h1
+    command: ping -c 30 -i 0.1 -W 1 10.30.2.2
+    notes: packet delivery and RTT under the current route state
+
+  ping_low_latency:
+    parser: ping
+    traffic_class: low_latency_dscp_ef
+    node: h1
+    command: ping -Q 0x2e -c 30 -i 0.1 -W 1 10.30.2.2
+    notes: DSCP-marked latency-sensitive flow
+
+  tcp_default:
+    parser: iperf3_json
+    traffic_class: best_effort
+    server_node: h2
+    server_command: pkill iperf3 2>/dev/null || true; iperf3 -s -p 5201 --one-off
+    server_start_wait_s: 1
+    client_node: h1
+    client_command: iperf3 -c 10.30.2.2 -p 5201 -t 8 -M 1200 -J
+    cleanup_commands:
+      - {label: stop_iperf3_h2, node: h2, command: "pkill iperf3 2>/dev/null || true", allow_failure: true}
+    notes: end-to-end TCP goodput
+
+  tcp_bulk:
+    parser: iperf3_json
+    traffic_class: bulk_dscp_cs1
+    server_node: h2
+    server_command: pkill iperf3 2>/dev/null || true; iperf3 -s -p 5202 --one-off
+    server_start_wait_s: 1
+    client_node: h1
+    client_command: iperf3 -c 10.30.2.2 -p 5202 -t 8 -M 1200 -S 0x08 -J
+    cleanup_commands:
+      - {label: stop_iperf3_h2, node: h2, command: "pkill iperf3 2>/dev/null || true", allow_failure: true}
+    notes: DSCP-marked bulk flow
+
+  route_snapshot_l1:
+    parser: raw
+    node: l1
+    command: "printf '%s\n' 'show network-instance default route-table' | sr_cli"
+    notes: l1 route-table evidence for the h2 prefix
+
+  route_snapshot_l2:
+    parser: raw
+    node: l2
+    command: "printf '%s\n' 'show network-instance default route-table' | sr_cli"
+    notes: l2 route-table evidence for the h1 prefix
+
+scenarios:
+  - id: no_action_without_evidence
+    question: No action without evidence
+    description: Both policies see a healthy fabric; bounded IR should leave device routing unchanged.
+    policies: [static_ecmp, bounded_ir]
+    setup_groups: [clear_all_faults]
+    cleanup_groups: [clear_all_faults, restore_ecmp]
+    probes: [ping_default, tcp_default, route_snapshot_l1, route_snapshot_l2]
+
+  - id: evidence_driven_suppression
+    question: Evidence-driven suppression
+    description: The s1 branch is degraded; bounded IR suppresses that branch while static ECMP keeps it.
+    policies: [static_ecmp, bounded_ir]
+    setup_groups: [clear_all_faults]
+    fault_groups: [degrade_s1_branch]
+    policy_fault_groups:
+      bounded_ir: [bounded_ir_suppress_s1]
+    observe_after_fault_s: 2
+    cleanup_groups: [clear_all_faults, restore_ecmp]
+    probes: [ping_default, tcp_default, route_snapshot_l1, route_snapshot_l2]
+
+  - id: bounded_response_under_burst
+    question: Bounded response under burst
+    description: A harsher transient branch impairment checks whether the governed action remains bounded.
+    policies: [static_ecmp, bounded_ir]
+    setup_groups: [clear_all_faults]
+    fault_groups: [burst_s1_branch]
+    policy_fault_groups:
+      bounded_ir: [bounded_ir_suppress_s1]
+    observe_after_fault_s: 2
+    cleanup_groups: [clear_all_faults, restore_ecmp]
+    probes: [ping_default, tcp_default, route_snapshot_l1, route_snapshot_l2]
+
+  - id: class_aware_preference
+    question: Class-aware preference
+    description: DSCP-marked latency and bulk probes exercise the policy hook for class-aware preference.
+    policies: [static_ecmp, bounded_ir]
+    setup_groups: [clear_all_faults]
+    policy_setup_groups:
+      bounded_ir: [bounded_ir_class_hook]
+    cleanup_groups: [clear_all_faults, restore_ecmp]
+    probes: [ping_low_latency, tcp_bulk, route_snapshot_l1, route_snapshot_l2]

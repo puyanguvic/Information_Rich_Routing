@@ -1,0 +1,148 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 16,
+    "simStopTime": 17,
+    "sampleInterval": 1
+  },
+  "seeds": [1, 2, 3, 4, 5],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "round_robin",
+      "args": {
+        "selectorMode": 1
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "mechanism_k1_hotspot",
+      "args": {
+        "kPaths": 1,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "mechanism_k2_hotspot",
+      "args": {
+        "kPaths": 2,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "mechanism_k4_hotspot",
+      "args": {
+        "kPaths": 4,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "burst_proxy_hotspot",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "degradation_bottleneck",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000
+      }
+    },
+    {
+      "name": "robustness_link_failure",
+      "args": {
+        "traffic": "permutation",
+        "flowCount": 72,
+        "flowRate": "25Mbps",
+        "stride": 5,
+        "failedLink": 0,
+        "failureTime": 8
+      }
+    },
+    {
+      "name": "application_mixed_proxy",
+      "args": {
+        "traffic": "permutation",
+        "flowCount": 96,
+        "flowRate": "18Mbps",
+        "stride": 7
+      }
+    },
+    {
+      "name": "scale_tiered_small",
+      "args": {
+        "regions": 3,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "traffic": "permutation",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "stride": 3
+      }
+    },
+    {
+      "name": "scale_tiered_medium",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "traffic": "permutation",
+        "flowCount": 72,
+        "flowRate": "20Mbps",
+        "stride": 5
+      }
+    },
+    {
+      "name": "scale_grid_25",
+      "args": {
+        "topology": "grid",
+        "gridRows": 5,
+        "gridColumns": 5,
+        "kPaths": 4,
+        "traffic": "permutation",
+        "flowCount": 75,
+        "flowRate": "16Mbps",
+        "stride": 6
+      }
+    }
+  ]
+}

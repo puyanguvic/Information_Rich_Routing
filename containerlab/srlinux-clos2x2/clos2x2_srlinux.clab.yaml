@@ -1,0 +1,51 @@
+name: ${CLAB_LAB_NAME:=exp3-nokia-ir}
+mgmt:
+  network: ${CLAB_MGMT_NETWORK:=clab-mgmt-exp3-nokia-ir}
+  ipv4-subnet: ${CLAB_MGMT_IPV4_SUBNET:=10.240.33.0/24}
+  ipv6-subnet: ${CLAB_MGMT_IPV6_SUBNET:=fd00:f0:33::/64}
+  external-access: ${CLAB_MGMT_EXTERNAL_ACCESS:=false}
+topology:
+  kinds:
+    nokia_srlinux:
+      type: ${NOKIA_SRL_TYPE:=ixr-d2l}
+      image: ${NOKIA_SRL_IMAGE:=ghcr.io/nokia/srlinux:latest}
+    linux:
+      image: ${HOST_IMAGE:=ghcr.io/srl-labs/network-multitool:latest}
+  nodes:
+    l1:
+      kind: nokia_srlinux
+      startup-config: configs/l1.cli
+    l2:
+      kind: nokia_srlinux
+      startup-config: configs/l2.cli
+    s1:
+      kind: nokia_srlinux
+      startup-config: configs/s1.cli
+    s2:
+      kind: nokia_srlinux
+      startup-config: configs/s2.cli
+    h1:
+      kind: linux
+      exec:
+        - ip link set eth1 up
+        - ip addr replace 10.30.1.2/24 dev eth1
+        - ip route replace default via 10.30.1.1
+    h2:
+      kind: linux
+      exec:
+        - ip link set eth1 up
+        - ip addr replace 10.30.2.2/24 dev eth1
+        - ip route replace default via 10.30.2.1
+  links:
+    - endpoints: ["h1:eth1", "l1:e1-10"]
+      ipv4: ["10.30.1.2/24", "10.30.1.1/24"]
+    - endpoints: ["h2:eth1", "l2:e1-10"]
+      ipv4: ["10.30.2.2/24", "10.30.2.1/24"]
+    - endpoints: ["l1:e1-1", "s1:e1-1"]
+      ipv4: ["10.30.11.1/30", "10.30.11.2/30"]
+    - endpoints: ["l1:e1-2", "s2:e1-1"]
+      ipv4: ["10.30.12.1/30", "10.30.12.2/30"]
+    - endpoints: ["l2:e1-1", "s1:e1-2"]
+      ipv4: ["10.30.21.1/30", "10.30.21.2/30"]
+    - endpoints: ["l2:e1-2", "s2:e1-2"]
+      ipv4: ["10.30.22.1/30", "10.30.22.2/30"]

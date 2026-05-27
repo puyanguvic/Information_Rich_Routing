@@ -1,0 +1,71 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 30,
+    "simStopTime": 31
+  },
+  "seeds": [1, 2, 3],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "round_robin",
+      "args": {
+        "selectorMode": 1
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "hotspot_capacity",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 48,
+        "flowRate": "30Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "bottleneck_adaptation",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 48,
+        "flowRate": "50Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 8,
+        "congestionPenalty": 1000
+      }
+    },
+    {
+      "name": "link_failure",
+      "args": {
+        "traffic": "permutation",
+        "flowCount": 48,
+        "flowRate": "30Mbps",
+        "stride": 5,
+        "failedLink": 0,
+        "failureTime": 15
+      }
+    }
+  ]
+}

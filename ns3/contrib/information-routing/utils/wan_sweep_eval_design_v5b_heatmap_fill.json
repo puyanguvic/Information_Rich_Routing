@@ -1,0 +1,204 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 16,
+    "simStopTime": 17,
+    "sampleInterval": 0.25,
+    "startJitter": 0.25
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "round_robin",
+      "args": {
+        "selectorMode": 1
+      }
+    },
+    {
+      "name": "load_aware_ecmp",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 1.0,
+        "hysteresisThreshold": 0.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "conga_like",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.7,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 50.0,
+        "updateBudgetPerSec": 200.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "v5b_T500ms_noise0pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:5.250:1500.0,1:5.500:5.750:1500.0,2:6.000:6.250:1500.0,3:6.500:6.750:1500.0,4:7.000:7.250:1500.0,5:7.500:7.750:1500.0,0:8.000:8.250:1500.0,1:8.500:8.750:1500.0,2:9.000:9.250:1500.0,3:9.500:9.750:1500.0,4:10.000:10.250:1500.0,5:10.500:10.750:1500.0,0:11.000:11.250:1500.0,1:11.500:11.750:1500.0,2:12.000:12.250:1500.0,3:12.500:12.750:1500.0,4:13.000:13.250:1500.0,5:13.500:13.750:1500.0,0:14.000:14.250:1500.0,1:14.500:14.750:1500.0",
+        "metricNoise": 0.0
+      }
+    },
+    {
+      "name": "v5b_T500ms_noise50pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:5.250:1500.0,1:5.500:5.750:1500.0,2:6.000:6.250:1500.0,3:6.500:6.750:1500.0,4:7.000:7.250:1500.0,5:7.500:7.750:1500.0,0:8.000:8.250:1500.0,1:8.500:8.750:1500.0,2:9.000:9.250:1500.0,3:9.500:9.750:1500.0,4:10.000:10.250:1500.0,5:10.500:10.750:1500.0,0:11.000:11.250:1500.0,1:11.500:11.750:1500.0,2:12.000:12.250:1500.0,3:12.500:12.750:1500.0,4:13.000:13.250:1500.0,5:13.500:13.750:1500.0,0:14.000:14.250:1500.0,1:14.500:14.750:1500.0",
+        "metricNoise": 0.5
+      }
+    },
+    {
+      "name": "v5b_T500ms_noise100pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:5.250:1500.0,1:5.500:5.750:1500.0,2:6.000:6.250:1500.0,3:6.500:6.750:1500.0,4:7.000:7.250:1500.0,5:7.500:7.750:1500.0,0:8.000:8.250:1500.0,1:8.500:8.750:1500.0,2:9.000:9.250:1500.0,3:9.500:9.750:1500.0,4:10.000:10.250:1500.0,5:10.500:10.750:1500.0,0:11.000:11.250:1500.0,1:11.500:11.750:1500.0,2:12.000:12.250:1500.0,3:12.500:12.750:1500.0,4:13.000:13.250:1500.0,5:13.500:13.750:1500.0,0:14.000:14.250:1500.0,1:14.500:14.750:1500.0",
+        "metricNoise": 1.0
+      }
+    },
+    {
+      "name": "v5b_T2000ms_noise0pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:6.000:1500.0,1:7.000:8.000:1500.0,2:9.000:10.000:1500.0,3:11.000:12.000:1500.0,4:13.000:14.000:1500.0",
+        "metricNoise": 0.0
+      }
+    },
+    {
+      "name": "v5b_T2000ms_noise50pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:6.000:1500.0,1:7.000:8.000:1500.0,2:9.000:10.000:1500.0,3:11.000:12.000:1500.0,4:13.000:14.000:1500.0",
+        "metricNoise": 0.5
+      }
+    },
+    {
+      "name": "v5b_T2000ms_noise100pct",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "congestionEvents": "0:5.000:6.000:1500.0,1:7.000:8.000:1500.0,2:9.000:10.000:1500.0,3:11.000:12.000:1500.0,4:13.000:14.000:1500.0",
+        "metricNoise": 1.0
+      }
+    }
+  ]
+}

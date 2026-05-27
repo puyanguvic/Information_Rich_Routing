@@ -1,0 +1,464 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 20,
+    "simStopTime": 21,
+    "sampleInterval": 0.25,
+    "startJitter": 0.25
+  },
+  "seeds": [1, 2, 3, 4, 5],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "round_robin",
+      "args": {
+        "selectorMode": 1
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "exp1_k1_no_signal_hotspot",
+      "args": {
+        "kPaths": 1,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client"
+      }
+    },
+    {
+      "name": "exp1_k2_no_signal_hotspot",
+      "args": {
+        "kPaths": 2,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client"
+      }
+    },
+    {
+      "name": "exp1_k4_no_signal_hotspot",
+      "args": {
+        "kPaths": 4,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client"
+      }
+    },
+    {
+      "name": "exp1_k8_no_signal_hotspot",
+      "args": {
+        "kPaths": 8,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client"
+      }
+    },
+    {
+      "name": "exp1_k16_no_signal_hotspot",
+      "args": {
+        "kPaths": 16,
+        "traffic": "hotspot",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "appMode": "udp-client"
+      }
+    },
+    {
+      "name": "exp1_refresh_10ms_degradation",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.01,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp1_refresh_50ms_degradation",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp1_refresh_250ms_degradation",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.25,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp1_refresh_1000ms_degradation",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 1.0,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp1_noisy_aggressive",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 1.0,
+        "hysteresisThreshold": 0,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "exp1_noisy_damped",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.3,
+        "hysteresisThreshold": 20,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "exp2_degradation_mild",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "30Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "150Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 600,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_degradation_moderate",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_degradation_high",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1500,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_burst_fanin_32",
+      "args": {
+        "traffic": "incast",
+        "flowCount": 32,
+        "flowRate": "40Mbps",
+        "hotspotNode": 0,
+        "appMode": "onoff",
+        "transport": "udp",
+        "onTime": "ns3::ConstantRandomVariable[Constant=0.10]",
+        "offTime": "ns3::ConstantRandomVariable[Constant=0.15]",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 12,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.025,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_burst_fanin_64",
+      "args": {
+        "traffic": "incast",
+        "flowCount": 64,
+        "flowRate": "40Mbps",
+        "hotspotNode": 0,
+        "appMode": "onoff",
+        "transport": "udp",
+        "onTime": "ns3::ConstantRandomVariable[Constant=0.10]",
+        "offTime": "ns3::ConstantRandomVariable[Constant=0.15]",
+        "congestedLink": 0,
+        "congestionTime": 5,
+        "congestionEndTime": 12,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.025,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_app_mix_50pct",
+      "args": {
+        "traffic": "bipartite",
+        "flowCount": 72,
+        "appMode": "tcp-bulk",
+        "tcpVariant": "TcpCubic",
+        "tcpSack": false,
+        "bulkSendSize": 1448,
+        "miceEvery": 2,
+        "miceMaxBytes": 50000,
+        "elephantMaxBytes": 5000000,
+        "tosProfile": "latency-bulk",
+        "tosAware": true,
+        "latencyEvery": 2,
+        "latencyDeadlineMs": 100,
+        "bulkDeadlineMs": 5000,
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 16,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp2_app_mix_25pct_latency",
+      "args": {
+        "traffic": "bipartite",
+        "flowCount": 72,
+        "appMode": "tcp-bulk",
+        "tcpVariant": "TcpCubic",
+        "tcpSack": false,
+        "bulkSendSize": 1448,
+        "miceEvery": 4,
+        "miceMaxBytes": 50000,
+        "elephantMaxBytes": 5000000,
+        "tosProfile": "latency-bulk",
+        "tosAware": true,
+        "latencyEvery": 4,
+        "latencyDeadlineMs": 100,
+        "bulkDeadlineMs": 5000,
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 16,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp3_scale_tiered_small",
+      "args": {
+        "regions": 3,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "traffic": "permutation",
+        "flowCount": 36,
+        "flowRate": "20Mbps",
+        "stride": 3,
+        "refreshInterval": 0.1,
+        "refreshStopTime": 18,
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000
+      }
+    },
+    {
+      "name": "exp3_scale_tiered_medium",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "traffic": "permutation",
+        "flowCount": 72,
+        "flowRate": "20Mbps",
+        "stride": 5,
+        "refreshInterval": 0.1,
+        "refreshStopTime": 18,
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000
+      }
+    },
+    {
+      "name": "exp3_scale_grid_25",
+      "args": {
+        "topology": "grid",
+        "gridRows": 5,
+        "gridColumns": 5,
+        "kPaths": 4,
+        "traffic": "permutation",
+        "flowCount": 75,
+        "flowRate": "16Mbps",
+        "stride": 6,
+        "refreshInterval": 0.1,
+        "refreshStopTime": 18,
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000
+      }
+    },
+    {
+      "name": "exp3_stale_telemetry_1000ms",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 1.0,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 5
+      }
+    },
+    {
+      "name": "exp3_noisy_telemetry_50pct",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionEndTime": 14,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18,
+        "dampingAlpha": 0.3,
+        "hysteresisThreshold": 20,
+        "metricNoise": 0.5
+      }
+    },
+    {
+      "name": "exp3_no_diversity_boundary",
+      "args": {
+        "kPaths": 1,
+        "traffic": "hotspot",
+        "flowCount": 72,
+        "flowRate": "35Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "100Mbps",
+        "congestedLink": 0,
+        "congestionTime": 6,
+        "congestionPenalty": 1000,
+        "refreshInterval": 0.05,
+        "refreshStopTime": 18
+      }
+    }
+  ]
+}

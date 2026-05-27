@@ -1,0 +1,22 @@
+set / interface ethernet-1/1 admin-state enable
+set / interface ethernet-1/1 subinterface 0 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 address 10.30.11.2/30
+set / interface ethernet-1/2 admin-state enable
+set / interface ethernet-1/2 subinterface 0 admin-state enable
+set / interface ethernet-1/2 subinterface 0 ipv4 admin-state enable
+set / interface ethernet-1/2 subinterface 0 ipv4 address 10.30.21.2/30
+set / network-instance default interface ethernet-1/1.0
+set / network-instance default interface ethernet-1/2.0
+set / network-instance default next-hop-groups group to_h1 admin-state enable
+set / network-instance default next-hop-groups group to_h1 nexthop 1 ip-address 10.30.11.1
+set / network-instance default next-hop-groups group to_h2 admin-state enable
+set / network-instance default next-hop-groups group to_h2 nexthop 1 ip-address 10.30.21.1
+set / network-instance default static-routes route 10.30.1.0/24 admin-state enable
+set / network-instance default static-routes route 10.30.1.0/24 metric 1
+set / network-instance default static-routes route 10.30.1.0/24 preference 5
+set / network-instance default static-routes route 10.30.1.0/24 next-hop-group to_h1
+set / network-instance default static-routes route 10.30.2.0/24 admin-state enable
+set / network-instance default static-routes route 10.30.2.0/24 metric 1
+set / network-instance default static-routes route 10.30.2.0/24 preference 5
+set / network-instance default static-routes route 10.30.2.0/24 next-hop-group to_h2

@@ -1,0 +1,175 @@
+# Information-routing WAN experiment utilities
+
+This directory contains the repeatable ns-3 experiment entry points used by the
+information-routing module.
+
+## Quick smoke test
+
+Use the quick config to verify that the ns-3 example, sweep runner, and analysis
+pipeline are wired correctly.
+
+```bash
+python3 contrib/information-routing/utils/run_wan_sweep.py \
+  --config contrib/information-routing/utils/wan_sweep_quick.json \
+  --output-dir /tmp/irp-wan-sweep-quick
+
+python3 contrib/information-routing/utils/analyze_wan_sweep.py \
+  --input-dir /tmp/irp-wan-sweep-quick \
+  --output-dir /tmp/irp-wan-sweep-quick-analysis
+```
+
+Use the app-mode smoke config after changing traffic generation.  It exercises
+timestamped UDP, OnOff burst traffic, TCP BulkSend, BBR, mixed flow sizes, start
+jitter, and TOS-aware routing attributes.
+
+```bash
+python3 contrib/information-routing/utils/run_wan_sweep.py \
+  --config contrib/information-routing/utils/wan_sweep_app_modes_smoke.json \
+  --output-dir /tmp/irp-wan-app-modes-smoke
+```
+
+## WAN experiment traffic knobs
+
+The `information-routing-wan-experiment` entry point keeps the original
+`traffic`, `flowCount`, `transport`, and `flowRate` arguments and adds a richer
+application layer:
+
+- `appMode=onoff`: installs `OnOffApplication` plus `PacketSink`.  Use
+  `transport=udp|tcp`, `flowRate`, `packetSize`, `onTime`, `offTime`,
+  `maxBytes`, and `startJitter`.
+- `appMode=udp-client`: installs `UdpClient` plus `UdpServer`.  Use
+  `udpInterval` or let it derive the interval from `flowRate`; use
+  `udpMaxPackets=0` for unlimited packets.
+- `appMode=tcp-bulk`: installs `BulkSendApplication` plus `PacketSink`.  Use
+  `tcpVariant=TcpCubic|TcpNewReno|TcpBbr|TcpDctcp`, `tcpSack=true|false`,
+  `bulkSendSize`, `maxBytes`, `miceEvery`, `miceMaxBytes`, and
+  `elephantMaxBytes`.  Use `tcpSack=false` when a stress test intentionally
+  creates heavy round-robin reordering and the comparison should avoid ns-3 SACK
+  implementation crashes.
+- `tos`, `tosProfile=single|latency-bulk|bulk-low`, and `latencyEvery` configure
+  per-flow IPv4 TOS.  `tosAware=true` makes the information-rich selector apply
+  priority-class weights when the packet TOS matches `priorityTos`.
+- `latencyDeadlineMs` and `bulkDeadlineMs` attach class-specific FCT deadlines
+  to generated flows.  The run writes per-flow `fct_ms`, `deadline_miss`, and
+  `completion_ratio`, plus per-class FCT and deadline-miss aggregates.
+- `refreshInterval`, `refreshStartTime`, `refreshStopTime`, `dampingAlpha`,
+  `hysteresisThreshold`, `metricNoise`, and `congestionEndTime` configure
+  periodic telemetry refresh and damping.  The example writes
+  `control_refresh_rounds`, `control_metric_writes`,
+  `control_metric_changes`, `control_suppressed_updates`,
+  `control_best_route_changes`, and `control_priority_best_route_changes` into
+  the run summary.  Only the traffic-aware selector consumes fast information;
+  static and round-robin baselines keep the same physical disturbance without
+  receiving the telemetry update.
+
+Supported traffic-pair modes are `hotspot`, `incast`, `permutation`,
+`all-to-all`, and `bipartite`.
+
+## Evaluation sweep
+
+The example config expands three scenarios across three selector modes and
+three seeds.  Results are written under `results/information-routing/` by
+default when `--output-dir` is omitted.
+
+```bash
+python3 contrib/information-routing/utils/run_wan_sweep.py \
+  --config contrib/information-routing/utils/wan_sweep_example.json
+
+python3 contrib/information-routing/utils/analyze_wan_sweep.py \
+  --input-dir results/information-routing/<run-dir>
+```
+
+The paper-facing experiment design is captured in the versioned
+`wan_sweep_eval_design_*.json` files.  The v3 files are organized by the current
+Evaluation section: `exp1_*` for admissibility/freshness/stability, `exp2_*` for
+degradation/burst/application functions, and `exp3_*` for scale and robustness.
+Use `--only-scenario` to run one slice before expanding to the full matrix.
+
+The v4 sweep tightens the weak spots found after the first full pass:
+
+- `wan_sweep_eval_design_v4_exp1_action_latency.json` offsets telemetry refresh
+  from the congestion event so first-control and first-action delay are
+  measurable rather than always landing exactly on the event timestamp.
+- `wan_sweep_eval_design_v4_exp2_burst_collision.json` adds a physical
+  bottleneck to the burst/incast stress tests, making the burst result measure
+  real collision relief instead of only route-score changes.
+- `wan_sweep_eval_design_v4_exp2_class_objective.json` compares static,
+  class-agnostic IR, and TOS-aware class-aware IR while exporting
+  priority/nonpriority selected-path shares.
+- `wan_sweep_eval_design_v4_la_ecmp_coverage.json` fills in LA-ECMP coverage for
+  degradation, burst, and noisy-telemetry cases.
+
+Run the improved matrix with:
+
+```bash
+contrib/information-routing/utils/run_eval_v4_parallel.sh
+```
+
+Useful overrides are `SEEDS="1 2 3 4 5"`, `MAX_PARALLEL=12`,
+`TIMEOUT_SEC=1200`, `RUN_ID=<name>`, and `OUT_ROOT=<path>`.
+
+## Artifacts
+
+Each run directory contains:
+
+- `command.txt`: exact ns-3 command.
+- `run_config.json`: resolved scenario, protocol, seed, and example args.
+- `stdout.txt` and `stderr.txt`: raw process output.
+- `flow_stats.csv`: FlowMonitor flow-level CSV with throughput and tail delay.
+- `class_summary.csv`: per-class throughput, delay, FCT, and deadline misses.
+- `timeseries.csv`: all-flow and per-class receive goodput sampled over time.
+- `control_timeseries.csv`: telemetry refresh counters and selected-path share
+  through the configured degraded link.
+- `selection_timeseries.csv`: selected route deltas, entropy, and selected-path
+  degraded share split into priority and nonpriority TOS classes.
+- `metrics.json`: structured per-run metadata and aggregate metrics.
+- `flowmon.xml`: raw FlowMonitor XML.
+
+The runner refreshes `summary.csv`, `summary_by_protocol.csv`, and `summary.md`
+after every completed run, so partially completed long sweeps can still be
+analyzed after interruption.
+
+For long unattended sweeps, use `--skip-existing` and `--timeout-sec`.  A timed
+out run returns code 124, writes its partial stdout/stderr, and lets the sweep
+continue unless `--fail-fast` is also set.
+
+When a large matrix is split across multiple output directories, merge the
+completed directories before running the paper analysis:
+
+```bash
+python3 contrib/information-routing/utils/merge_wan_sweeps.py \
+  --output-dir results/information-routing/<merged-run-dir> \
+  results/information-routing/<exp1-run-dir> \
+  results/information-routing/<exp2-run-dir> \
+  results/information-routing/<exp3-run-dir>
+
+python3 contrib/information-routing/utils/analyze_wan_sweep.py \
+  --input-dir results/information-routing/<merged-run-dir> \
+  --output-dir results/information-routing/<merged-run-dir>-analysis
+```
+
+The analysis directory contains:
+
+- `wan_sweep_aggregate.csv`: mean and sample standard deviation by scenario and
+  protocol.
+- `wan_sweep_timeseries.csv`: merged per-run receive goodput samples.
+- `wan_sweep_class_summary.csv`: merged per-run class summaries.
+- `wan_sweep_class_summary_aggregate.csv`: per-scenario/protocol/class
+  aggregate for application-aware figures and tables.
+- `wan_sweep_control_timeseries.csv`: merged telemetry/control samples for
+  refresh, damping, and degraded-path-share figures.
+- `wan_sweep_selection_timeseries.csv`: merged route-selection samples,
+  including priority/nonpriority selected-path degraded shares.
+- `wan_sweep_event_action.csv`: per-run first telemetry/control action,
+  route-change, recovery, final selected-path, and weighted selected-path
+  degraded-share evidence.
+- `wan_sweep_event_action_aggregate.csv`: mean/stdev/p50/p95 aggregate for the
+  event-action metrics.
+- `wan_sweep_recovery.csv`: per-run reaction delay after a configured
+  failure/congestion event.
+- `wan_sweep_recovery_aggregate.csv`: reaction-delay aggregate by scenario and
+  protocol.
+- `wan_sweep_table.tex`: compact LaTeX table.
+- `wan_sweep_metric_panels.pdf`: multi-panel metric comparison.
+- `wan_sweep_<metric>.pdf`: one figure per metric.
+- `wan_sweep_timeseries_<scenario>.pdf`: receive goodput over time.

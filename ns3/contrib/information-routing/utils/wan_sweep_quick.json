@@ -1,0 +1,54 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 3,
+    "metrosPerRegion": 1,
+    "edgesPerMetro": 1,
+    "kPaths": 2,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 6,
+    "simStopTime": 7
+  },
+  "seeds": [1],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "hotspot_smoke",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 6,
+        "flowRate": "5Mbps",
+        "hotspotNode": 0
+      }
+    },
+    {
+      "name": "bottleneck_smoke",
+      "args": {
+        "traffic": "hotspot",
+        "flowCount": 6,
+        "flowRate": "20Mbps",
+        "hotspotNode": 0,
+        "bottleneckLink": 0,
+        "bottleneckRate": "10Mbps",
+        "congestedLink": 0,
+        "congestionTime": 3,
+        "congestionPenalty": 1000
+      }
+    }
+  ]
+}
