@@ -30,6 +30,8 @@ REQUIRED_PATHS = [
     "containerlab/srlinux-clos2x2/exp3_nokia_srlinux.yaml",
     "tools/run_containerlab_recovery_cdf.py",
     "tools/run_containerlab_governor_stress.py",
+    "tools/run_containerlab_app_recovery.py",
+    "experiments/containerlab/app_recovery.yaml",
     "traces/fb_hadoop_synth_load1x.csv",
 ]
 
@@ -104,6 +106,8 @@ def rel(path: Path) -> str:
 
 def should_skip(path: Path) -> bool:
     parts = path.relative_to(ROOT).parts
+    if any(part.startswith("clab-") for part in parts):
+        return True
     for item in SKIP_DIRS:
         skip_parts = tuple(item.split("/"))
         if parts[: len(skip_parts)] == skip_parts:

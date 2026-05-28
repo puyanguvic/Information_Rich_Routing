@@ -11,6 +11,7 @@ results/
 figs/generated/
 tables/generated/
 tables/generated_v5/
+containerlab/**/clab-*/
 
 *.log
 *.aux

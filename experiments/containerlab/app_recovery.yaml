@@ -1,0 +1,28 @@
+name: app_recovery_srlinux
+description: >
+  Application-facing SR Linux validation inspired by deployment-style recovery
+  experiments. A storage-like IO client observes jitter/hang symptoms, converts
+  them to scoped evidence, and compares Static ECMP, random re-pathing,
+  direct evidence writes, and an IR governor.
+topology: containerlab/srlinux-clos2x2/clos2x2_srlinux.clab.yaml
+policies:
+  - static_ecmp
+  - random_repath
+  - direct_signal
+  - ir_governor
+app:
+  workers: [1, 8, 16, 32]
+  task_bytes: 128K
+  task_interval_s: 0.15
+  jitter_multiplier: 2.0
+  hang_timeout_s: 3.0
+faults:
+  - id: leaf_unidirectional_gray
+    l1_cmd: tc qdisc replace dev e1-1 root netem delay 60ms 5ms loss 1% rate 25mbit
+    s1_cmd: "true"
+  - id: leaf_bidirectional_gray
+    l1_cmd: tc qdisc replace dev e1-1 root netem delay 60ms 5ms loss 1% rate 25mbit
+    s1_cmd: tc qdisc replace dev e1-1 root netem delay 60ms 5ms loss 1% rate 25mbit
+  - id: leaf_blackhole
+    l1_cmd: tc qdisc replace dev e1-1 root netem loss 100%
+    s1_cmd: tc qdisc replace dev e1-1 root netem loss 100%

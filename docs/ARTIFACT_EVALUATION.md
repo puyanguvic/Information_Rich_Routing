@@ -106,9 +106,18 @@ Run the governor stress experiment:
 python3 tools/run_containerlab_governor_stress.py --repeats 6
 ```
 
-Both write CSV and raw probe outputs under `figs/generated/containerlab_recovery`
-by default. Use `--output-dir results/containerlab_recovery` if you want to keep
-all regenerated outputs under the ignored `results/` tree.
+Run the application-facing recovery scaffold:
+
+```bash
+python3 tools/run_containerlab_app_recovery.py --dry-run
+python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
+```
+
+The recovery and governor scripts write CSV and raw probe outputs under
+`figs/generated/containerlab_recovery` by default. The application-facing runner
+writes under `figs/generated/containerlab_app`. Use `--output-dir
+results/containerlab_recovery` or `--output-dir results/containerlab_app` if you
+want regenerated outputs under the ignored `results/` tree.
 
 ## 5. Paper Figures and Tables
 

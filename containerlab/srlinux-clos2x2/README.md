@@ -22,6 +22,13 @@ Run the governor stress experiment:
 python3 tools/run_containerlab_governor_stress.py --repeats 6
 ```
 
+Run the application-facing recovery scaffold:
+
+```bash
+python3 tools/run_containerlab_app_recovery.py --dry-run
+python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
+```
+
 Useful overrides:
 
 ```bash
@@ -40,6 +47,13 @@ Governor-stress artifacts:
 
 - `containerlab_governor_stress.csv`: per-trial proposal/action rows.
 - timestamped run directories with `governor_summary.md`.
+
+Application-recovery artifacts:
+
+- `containerlab_app_recovery.csv`: per-trial IO jitter/hang, proposal,
+  admission, commit, and route-audit rows.
+- timestamped run directories with `app_recovery_summary.md`, raw iperf3 JSON,
+  and pre/post SR Linux route snapshots.
 
 The older YAML matrix in `exp3_nokia_srlinux.yaml` is retained as a lower-level
 scenario specification for manual device-validation runs. It records:

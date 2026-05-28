@@ -223,7 +223,7 @@ def deploy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
         "--reconfigure",
     ]
     if use_sudo:
-        full_cmd = ["sudo", "env", *[f"{k}={v}" for k, v in sorted(env_overrides.items())], *cmd]
+        full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(env_overrides.items())], *cmd]
         run(full_cmd)
     else:
         env = {**os.environ, **env_overrides}
@@ -242,7 +242,7 @@ def destroy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
         "--cleanup",
     ]
     if use_sudo:
-        full_cmd = ["sudo", "env", *[f"{k}={v}" for k, v in sorted(containerlab_env(args).items())], *cmd]
+        full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(containerlab_env(args).items())], *cmd]
         run(full_cmd, check=False)
     else:
         env = {**os.environ, **containerlab_env(args)}

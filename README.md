@@ -92,6 +92,18 @@ python3 tools/run_containerlab_recovery_cdf.py --repeats 12
 python3 tools/run_containerlab_governor_stress.py --repeats 6
 ```
 
+The application-facing SR Linux recovery scaffold is:
+
+```bash
+python3 tools/run_containerlab_app_recovery.py --dry-run
+python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
+```
+
+This runner is the newer device-validation path. It keeps the original probe
+experiments intact, but adds storage-like IO tasks, proposal/admission counts,
+SR Linux commit timing, and route/config audit fields so the paper can report
+service-visible jitter/hang alongside the route-state boundary.
+
 These scripts require Docker, containerlab, sudo privileges unless `--no-sudo`
 is used, and access to the SR Linux image configured in the topology.
 
