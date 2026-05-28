@@ -30,6 +30,11 @@ NS3_RESULTS = Path(os.environ.get("IR_NS3_RESULTS", ROOT / "results" / "informat
 FALLBACK_SWEEP = NS3_RESULTS / "eval-design-v2-exp1-k-seed1-20260508"
 CONTAINERLAB_RECOVERY_CSV = OUT / "containerlab_recovery" / "containerlab_recovery_events.csv"
 CONTAINERLAB_GOVERNOR_CSV = OUT / "containerlab_recovery" / "containerlab_governor_stress.csv"
+CONTAINERLAB_APP_CSV_CANDIDATES = [
+    ROOT / "results" / "containerlab_app" / "containerlab_app_recovery.csv",
+    ROOT / "code" / "Information_Rich_Routing" / "results" / "containerlab_app" / "containerlab_app_recovery.csv",
+    OUT / "containerlab_app" / "containerlab_app_recovery.csv",
+]
 
 PROTOCOLS = ["static", "round_robin", "information_routing"]
 LABELS = {
@@ -2548,6 +2553,148 @@ def draw_containerlab_recovery_cdf() -> None:
     )
 
 
+def draw_containerlab_app_recovery() -> None:
+    csv_path = next((path for path in CONTAINERLAB_APP_CSV_CANDIDATES if path.exists()), None)
+    rows = read_rows(csv_path)
+
+    fig, ax = plt.subplots(1, 1, figsize=(3.42, 1.36))
+    policies = [
+        ("static_ecmp", "Static ECMP", COLORS["static"], "-"),
+        ("random_repath", "Random re-path", COLORS["round_robin"], "--"),
+        ("direct_signal", "Direct signal", COLORS["load_aware_ecmp"], "-."),
+        ("ir_governor", "IR governor", COLORS["information_routing"], "-"),
+    ]
+    if rows:
+        for policy, label, color, linestyle in policies:
+            values = sorted(
+                value
+                for value in (as_float(row, "jitter_duration_total_s") for row in rows if row.get("policy") == policy)
+                if value is not None and math.isfinite(value)
+            )
+            if not values:
+                continue
+            x_values = [values[0], *values]
+            y_values = [0.0, *[(idx + 1) / len(values) for idx in range(len(values))]]
+            ax.step(
+                x_values,
+                y_values,
+                where="post",
+                color=color,
+                linestyle=linestyle,
+                linewidth=1.3,
+                label=label,
+            )
+        ax.set_xlabel("Symptom exposure per trial (s)", labelpad=1.0)
+        ax.set_ylabel("CDF", labelpad=1.0)
+        ax.set_xlim(0, 40)
+        ax.set_ylim(0, 1.0)
+        ax.set_xticks([0, 10, 20, 30, 40])
+        ax.set_yticks([0.0, 0.5, 1.0])
+        legend_if_any(ax, loc="lower right", fontsize=5.9, handlelength=1.4, borderpad=0.0)
+        style_axis(ax)
+        ax.tick_params(labelsize=6.8, pad=1.0)
+        ax.xaxis.label.set_size(7.4)
+        ax.yaxis.label.set_size(7.4)
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "(containerlab app CSV not found)",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=7,
+            color="#666",
+        )
+        ax.set_axis_off()
+    save_png_and_pdf(fig, "eval_containerlab_app_downtime_cdf")
+
+    if not rows:
+        return
+
+    def policy_mean(policy: str, key: str) -> float | None:
+        return mean([as_float(row, key) for row in rows if row.get("policy") == policy])
+
+    def fault_policy_mean(fault: str, policy: str, key: str) -> float | None:
+        return mean(
+            [
+                as_float(row, key)
+                for row in rows
+                if row.get("fault") == fault and row.get("policy") == policy
+            ]
+        )
+
+    fault_order = [
+        ("leaf_unidirectional_gray", "Leaf unidir. gray"),
+        ("leaf_bidirectional_gray", "Leaf bidir. gray"),
+        ("leaf_blackhole", "Leaf blackhole"),
+    ]
+    table_lines = [
+        "\\begin{table*}[!t]",
+        "\\centering",
+        "\\caption{Application-facing product router-image validation on SR Linux. The",
+        "overall block averages 60 trials per policy: three fault classes, four IO-worker",
+        "settings, and five repeats. Each trial contains 12 measured IO tasks. Jitter and",
+        "hang are mean task occurrence; actions, commits, and device time are per trial.",
+        "The fault block reports hang occurrence, averaged over worker settings. NHG",
+        "edits are next-hop-group active-view edits; slow edits are route creation,",
+        "withdrawal, or metric rewrites.}",
+        "\\label{tab:containerlab-device-results}",
+        "\\scriptsize",
+        "\\setlength{\\tabcolsep}{2.8pt}",
+        "\\renewcommand{\\arraystretch}{0.96}",
+        "\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}}lrrrrrrl@{}}",
+        "\\toprule",
+        "\\multicolumn{8}{@{}l}{\\textit{Overall application symptoms and device actions.}} \\\\",
+        "\\midrule",
+        "Policy & Jitter & Hang & Actions & Commits & Device s & Slow edits & Takeaway \\\\",
+        "\\midrule",
+    ]
+    overall_rows = [
+        ("static_ecmp", "Static ECMP", "keeps failed branch active"),
+        ("random_repath", "Random re-path", "hash trial-and-error"),
+        ("direct_signal", "Direct signal", "writes every symptom"),
+        ("ir_governor", "IR governor", "sparse governed writes"),
+    ]
+    for policy, label, takeaway in overall_rows:
+        table_lines.append(
+            f"{label} & "
+            f"{fmt_num(policy_mean(policy, 'jitter_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(policy_mean(policy, 'hang_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(policy_mean(policy, 'admitted_actions'), 2)} & "
+            f"{fmt_num(policy_mean(policy, 'commits'), 2)} & "
+            f"{fmt_num(policy_mean(policy, 'action_total_s'), 2)} & "
+            f"{fmt_num(policy_mean(policy, 'slow_route_edits'), 2)} & "
+            f"{takeaway} \\\\"
+        )
+    table_lines.extend(
+        [
+            "\\midrule",
+            "\\multicolumn{8}{@{}l}{\\textit{Hang occurrence by fault class. Values are Static/Random/Direct/IR.}} \\\\",
+            "\\midrule",
+            "Fault & Static & Random & Direct & IR & IR commits & IR NHG edits & Slow edits \\\\",
+            "\\midrule",
+        ]
+    )
+    for fault, label in fault_order:
+        table_lines.append(
+            f"{label} & "
+            f"{fmt_num(fault_policy_mean(fault, 'static_ecmp', 'hang_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(fault_policy_mean(fault, 'random_repath', 'hang_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(fault_policy_mean(fault, 'direct_signal', 'hang_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(fault_policy_mean(fault, 'ir_governor', 'hang_occurrence_pct'), 1)}\\% & "
+            f"{fmt_num(fault_policy_mean(fault, 'ir_governor', 'commits'), 2)} & "
+            f"{fmt_num(fault_policy_mean(fault, 'ir_governor', 'next_hop_group_edits'), 2)} & "
+            f"{fmt_num(fault_policy_mean(fault, 'ir_governor', 'slow_route_edits'), 2)} \\\\"
+        )
+    table_lines.extend(["\\bottomrule", "\\end{tabular*}", "\\end{table*}", ""])
+    ensure_tables()
+    (TABLE_OUT / "containerlab_recovery_summary.tex").write_text(
+        "\n".join(table_lines),
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     configure_style()
     sweep = latest_sweep_dir()
@@ -2558,6 +2705,7 @@ def main() -> None:
     draw_exp2_traffic_functions_v3(analysis)
     draw_exp3_scale_robustness_v3(summary, analysis)
     draw_containerlab_recovery_cdf()
+    draw_containerlab_app_recovery()
 
 
 if __name__ == "__main__":
