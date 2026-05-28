@@ -94,11 +94,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lab-name", default="exp3-nokia-ir-app")
     parser.add_argument("--output-dir", default=str(ROOT / "figs/generated/containerlab_app"))
     parser.add_argument("--clab-bin", default="containerlab")
+    parser.add_argument("--clab-runner", choices=["binary", "docker"], default="binary")
+    parser.add_argument("--clab-image", default="ghcr.io/srl-labs/clab:latest")
+    parser.add_argument("--clab-mgmt-network", default=None)
+    parser.add_argument("--clab-mgmt-ipv4-subnet", default="10.240.34.0/24")
+    parser.add_argument("--clab-mgmt-ipv6-subnet", default="fd00:f0:34::/64")
     parser.add_argument("--no-sudo", action="store_true")
     parser.add_argument("--keep-lab", action="store_true")
     parser.add_argument("--skip-deploy", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--deploy-retries", type=int, default=0)
     parser.add_argument("--wait-after-deploy-s", type=float, default=75.0)
+    parser.add_argument("--trial-ids", type=int, nargs="+", default=None)
     parser.add_argument("--workers", type=int, nargs="+", default=[1, 8, 16, 32])
     parser.add_argument("--policies", nargs="+", choices=POLICIES, default=POLICIES)
     parser.add_argument("--faults", nargs="+", choices=[fault.label for fault in FAULTS], default=None)
@@ -446,7 +453,9 @@ def write_summary(path: Path, rows: list[dict[str, str | float | int | bool]]) -
 def main() -> int:
     args = parse_args()
     selected_faults = [fault for fault in FAULTS if args.faults is None or fault.label in args.faults]
+    trial_ids = args.trial_ids if args.trial_ids is not None else list(range(1, args.repeats + 1))
     if args.dry_run:
+        print(f"trial_ids={','.join(str(trial) for trial in trial_ids)}")
         for fault in selected_faults:
             for workers in args.workers:
                 for policy in args.policies:
@@ -464,7 +473,7 @@ def main() -> int:
         if not args.skip_deploy:
             recovery.deploy_lab(args, use_sudo=use_sudo)
         recovery.run_entries(args.lab_name, recovery.HOST_BOOTSTRAP, use_sudo=use_sudo)
-        for trial in range(1, args.repeats + 1):
+        for trial in trial_ids:
             for fault in selected_faults:
                 for workers in args.workers:
                     for policy in args.policies:

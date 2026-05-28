@@ -2629,12 +2629,23 @@ def draw_containerlab_app_recovery() -> None:
         ("leaf_bidirectional_gray", "Leaf bidir. gray"),
         ("leaf_blackhole", "Leaf blackhole"),
     ]
+    repeat_count = len({row.get("trial") for row in rows if row.get("trial")})
+    fault_count = len({row.get("fault") for row in rows if row.get("fault")})
+    worker_count = len({row.get("workers") for row in rows if row.get("workers")})
+    rows_per_policy = max(
+        (sum(1 for row in rows if row.get("policy") == policy) for policy, *_ in policies),
+        default=0,
+    )
+    task_count = max(
+        (int(as_float(row, "tasks") or 0) for row in rows),
+        default=0,
+    )
     table_lines = [
         "\\begin{table*}[!t]",
         "\\centering",
         "\\caption{Application-facing product router-image validation on SR Linux. The",
-        "overall block averages 60 trials per policy: three fault classes, four IO-worker",
-        "settings, and five repeats. Each trial contains 12 measured IO tasks. Jitter and",
+        f"overall block averages {rows_per_policy} experiment cells per policy: {fault_count} fault classes, {worker_count} IO-worker",
+        f"settings, and {repeat_count} repeats. Each cell contains {task_count} measured IO tasks. Jitter and",
         "hang are mean task occurrence; actions, commits, and device time are per trial.",
         "The fault block reports hang occurrence, averaged over worker settings. NHG",
         "edits are next-hop-group active-view edits; slow edits are route creation,",

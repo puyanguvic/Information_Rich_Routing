@@ -143,9 +143,15 @@ def parse_args() -> argparse.Namespace:
         default=str(ROOT / "figs/generated/containerlab_recovery"),
     )
     parser.add_argument("--clab-bin", default="containerlab")
+    parser.add_argument("--clab-runner", choices=["binary", "docker"], default="binary")
+    parser.add_argument("--clab-image", default="ghcr.io/srl-labs/clab:latest")
+    parser.add_argument("--clab-mgmt-network", default=None)
+    parser.add_argument("--clab-mgmt-ipv4-subnet", default="10.240.34.0/24")
+    parser.add_argument("--clab-mgmt-ipv6-subnet", default="fd00:f0:34::/64")
     parser.add_argument("--no-sudo", action="store_true")
     parser.add_argument("--keep-lab", action="store_true")
     parser.add_argument("--skip-deploy", action="store_true")
+    parser.add_argument("--deploy-retries", type=int, default=0)
     parser.add_argument("--wait-after-deploy-s", type=float, default=75.0)
     parser.add_argument("--pre-fault-s", type=float, default=0.8)
     parser.add_argument("--evidence-delay-s", type=float, default=0.4)
@@ -202,19 +208,64 @@ def docker_exec(
 def containerlab_env(args: argparse.Namespace) -> dict[str, str]:
     return {
         "CLAB_LAB_NAME": args.lab_name,
-        "CLAB_MGMT_NETWORK": f"clab-mgmt-{args.lab_name}",
-        "CLAB_MGMT_IPV4_SUBNET": "10.240.34.0/24",
-        "CLAB_MGMT_IPV6_SUBNET": "fd00:f0:34::/64",
+        "CLAB_MGMT_NETWORK": args.clab_mgmt_network or f"clab-mgmt-{args.lab_name}",
+        "CLAB_MGMT_IPV4_SUBNET": args.clab_mgmt_ipv4_subnet,
+        "CLAB_MGMT_IPV6_SUBNET": args.clab_mgmt_ipv6_subnet,
         "NOKIA_SRL_IMAGE": "ghcr.io/nokia/srlinux:latest",
         "NOKIA_SRL_TYPE": "ixr-d2l",
         "HOST_IMAGE": "ghcr.io/srl-labs/network-multitool:latest",
     }
 
 
+def containerlab_docker_cmd(args: argparse.Namespace, subcommand: list[str]) -> list[str]:
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--privileged",
+        "--network",
+        "host",
+        "--pid",
+        "host",
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "-v",
+        "/run/netns:/run/netns",
+        "-v",
+        "/etc/hosts:/etc/hosts",
+        "-v",
+        f"{ROOT}:{ROOT}",
+        "-w",
+        str(ROOT),
+    ]
+    for key, value in sorted(containerlab_env(args).items()):
+        cmd.extend(["-e", f"{key}={value}"])
+    cmd.extend([args.clab_image, "containerlab", *subcommand])
+    return cmd
+
+
+def run_containerlab(args: argparse.Namespace, subcommand: list[str], *, use_sudo: bool, check: bool = True) -> None:
+    if args.clab_runner == "docker":
+        run(with_sudo(containerlab_docker_cmd(args, subcommand), use_sudo=use_sudo), check=check)
+        return
+
+    cmd = [args.clab_bin, *subcommand]
+    if use_sudo:
+        full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(containerlab_env(args).items())], *cmd]
+        run(full_cmd, check=check)
+    else:
+        env = {**os.environ, **containerlab_env(args)}
+        run(cmd, check=check, env=env)
+
+
+def cleanup_containerlab_network(args: argparse.Namespace, *, use_sudo: bool) -> None:
+    network = containerlab_env(args)["CLAB_MGMT_NETWORK"]
+    run(with_sudo(["docker", "network", "rm", network], use_sudo=use_sudo), check=False)
+
+
 def deploy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
     env_overrides = containerlab_env(args)
-    cmd = [
-        args.clab_bin,
+    subcommand = [
         "deploy",
         "-t",
         str(TOPOLOGY),
@@ -222,18 +273,38 @@ def deploy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
         args.lab_name,
         "--reconfigure",
     ]
-    if use_sudo:
-        full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(env_overrides.items())], *cmd]
-        run(full_cmd)
-    else:
-        env = {**os.environ, **env_overrides}
-        run(cmd, env=env)
+    print(
+        "deploy_lab "
+        f"name={args.lab_name} runner={args.clab_runner} "
+        f"network={env_overrides['CLAB_MGMT_NETWORK']} "
+        f"ipv4={env_overrides['CLAB_MGMT_IPV4_SUBNET']}",
+        flush=True,
+    )
+    retries = max(0, int(getattr(args, "deploy_retries", 0)))
+    last_error: RuntimeError | None = None
+    for attempt in range(1, retries + 2):
+        try:
+            run_containerlab(args, subcommand, use_sudo=use_sudo)
+            last_error = None
+            break
+        except RuntimeError as exc:
+            last_error = exc
+            if attempt > retries:
+                break
+            print(
+                f"deploy_retry name={args.lab_name} attempt={attempt}/{retries + 1}",
+                flush=True,
+            )
+            destroy_lab(args, use_sudo=use_sudo)
+            cleanup_containerlab_network(args, use_sudo=use_sudo)
+            time.sleep(min(30.0, 5.0 * attempt))
+    if last_error is not None:
+        raise last_error
     time.sleep(args.wait_after_deploy_s)
 
 
 def destroy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
-    cmd = [
-        args.clab_bin,
+    subcommand = [
         "destroy",
         "-t",
         str(TOPOLOGY),
@@ -241,12 +312,8 @@ def destroy_lab(args: argparse.Namespace, *, use_sudo: bool) -> None:
         args.lab_name,
         "--cleanup",
     ]
-    if use_sudo:
-        full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(containerlab_env(args).items())], *cmd]
-        run(full_cmd, check=False)
-    else:
-        env = {**os.environ, **containerlab_env(args)}
-        run(cmd, check=False, env=env)
+    run_containerlab(args, subcommand, use_sudo=use_sudo, check=False)
+    cleanup_containerlab_network(args, use_sudo=use_sudo)
 
 
 def run_entries(lab_name: str, entries: list[tuple[str, str]], *, use_sudo: bool) -> None:
