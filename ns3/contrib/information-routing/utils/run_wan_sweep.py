@@ -209,7 +209,7 @@ def timeout_output(value: str | bytes | None) -> str:
 
 
 def run_command(ns3_root: Path, command: str, timeout_sec: float = 0) -> subprocess.CompletedProcess[str]:
-    args = ["./ns3", "run", command]
+    args = ["./ns3", "run", "--no-build", command]
     timeout = timeout_sec if timeout_sec > 0 else None
     try:
         return subprocess.run(
@@ -343,7 +343,8 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None, help="directory for run artifacts")
     parser.add_argument("--ns3-root", type=Path, default=None, help="ns-3 repository root")
     parser.add_argument("--dry-run", action="store_true", help="print commands without running")
-    parser.add_argument("--no-build", action="store_true", help="skip './ns3 build information-routing'")
+    parser.add_argument("--no-build", action="store_true",
+                        help="skip the initial example build; per-run invocations always use './ns3 run --no-build'")
     parser.add_argument("--max-runs", type=int, default=0, help="limit expanded runs; 0 means no limit")
     parser.add_argument("--only-scenario", action="append", default=None, help="scenario name to include")
     parser.add_argument("--only-protocol", action="append", default=None, help="protocol name to include")
@@ -379,7 +380,7 @@ def main() -> int:
 
     if not args.no_build and not args.dry_run:
         build = subprocess.run(
-            ["./ns3", "build", "information-routing"],
+            ["./ns3", "build", "information-routing-wan-experiment"],
             cwd=ns3_root,
             check=False,
             text=True,
@@ -431,11 +432,11 @@ def main() -> int:
                         "command": command,
                     },
                 )
-                (run_dir / "command.txt").write_text(f"./ns3 run {shlex.quote(command)}\n",
+                (run_dir / "command.txt").write_text(f"./ns3 run --no-build {shlex.quote(command)}\n",
                                                      encoding="utf-8")
 
                 print(f"[run] scenario={scenario['name']} protocol={protocol['name']} seed={seed}")
-                print(f"      ./ns3 run {shlex.quote(command)}")
+                print(f"      ./ns3 run --no-build {shlex.quote(command)}")
                 if args.dry_run:
                     continue
 

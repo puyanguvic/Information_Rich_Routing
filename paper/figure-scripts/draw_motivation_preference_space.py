@@ -67,9 +67,9 @@ def main():
     ax.axis("off")
 
     ax.text(0.05, 0.86, "route-discovery scope", ha="left", va="center", fontsize=6.2, fontweight="bold", color=COLORS["dark"])
-    add_label_box(ax, 0.05, 0.54, 0.18, 0.20, "SPF\n{v1}", COLORS["gray"], COLORS["light_gray"])
-    add_label_box(ax, 0.30, 0.54, 0.22, 0.20, "ECMP\n{v1,v2}", COLORS["blue"])
-    add_label_box(ax, 0.60, 0.54, 0.30, 0.20, "bounded candidates\n{v1,v2,v3}", COLORS["green"])
+    add_label_box(ax, 0.05, 0.54, 0.18, 0.20, "SPF\n{n1}", COLORS["gray"], COLORS["light_gray"])
+    add_label_box(ax, 0.30, 0.54, 0.22, 0.20, "ECMP\n{n1,n2}", COLORS["blue"])
+    add_label_box(ax, 0.60, 0.54, 0.30, 0.20, "bounded candidates\n{n1,n2,n3}", COLORS["green"])
     add_arrow(ax, (0.24, 0.64), (0.29, 0.64), COLORS["gray"])
     add_arrow(ax, (0.53, 0.64), (0.59, 0.64), COLORS["gray"])
 

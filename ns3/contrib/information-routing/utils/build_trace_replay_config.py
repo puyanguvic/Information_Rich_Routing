@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the v5_exp10 trace-replay config + a synthetic FB-Hadoop-style
+"""Generate the trace-replay config + a synthetic FB-Hadoop-style
 flow schedule for §5.2 Tab 2 (c).
 
 We synthesize a CSV that matches the published Roy et al. SIGCOMM '15
@@ -13,7 +13,7 @@ characterization of Facebook's Hadoop cluster traffic:
   * All TOS=0 (BE class) since Hadoop traffic is undifferentiated.
 
 The schedule lives in `traces/fb_hadoop_synth.csv` and is committed
-as a fixture so the v5_exp10 sweep is deterministic across machines.
+as a fixture so the trace-replay sweep is deterministic across machines.
 
 3 offered-load points × 5 policies × 20 seeds = 300 runs. Offered-load
 is implemented by time-compressing the schedule by {1, 2, 4}× (so 4×
@@ -229,7 +229,7 @@ def main() -> None:
 
     config = {"common": COMMON, "seeds": SEEDS,
               "protocols": PROTOCOLS, "scenarios": scenarios}
-    out = Path(__file__).parent / "wan_sweep_eval_design_v5_exp10_trace.json"
+    out = Path(__file__).parent / "wan_sweep_eval_trace_replay.json"
     out.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     print(f"[write] {out}")
     print(f"  3 scenarios x 5 protocols x 20 seeds = 300 runs")

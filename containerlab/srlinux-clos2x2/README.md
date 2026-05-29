@@ -55,8 +55,8 @@ Application-recovery artifacts:
 - timestamped run directories with `app_recovery_summary.md`, raw iperf3 JSON,
   and pre/post SR Linux route snapshots.
 
-The older YAML matrix in `exp3_nokia_srlinux.yaml` is retained as a lower-level
-scenario specification for manual device-validation runs. It records:
+The YAML matrix in `nokia_srlinux.yaml` is the lower-level scenario
+specification for manual device-validation runs. It records:
 
 - command groups for clear, fault, ECMP restore, and IR suppression actions.
 - policy/probe definitions.
@@ -70,5 +70,5 @@ Raw artifacts may include:
 - `raw/`: raw probe outputs and route snapshots.
 
 The class-aware scenario includes a no-op device policy hook by default. Replace
-`bounded_ir_class_hook` in `exp3_nokia_srlinux.yaml` with Nokia SR Linux ACL/PBF
+`bounded_ir_class_hook` in `nokia_srlinux.yaml` with Nokia SR Linux ACL/PBF
 commands when the exact class-to-next-hop mapping is finalized.

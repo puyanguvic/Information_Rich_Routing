@@ -23,7 +23,7 @@ or aggregation scripts at an external result tree, set:
 
 ```bash
 export IR_NS3_RESULTS=/path/to/ns-3/results/information-routing
-export IR_NS3_RUN_DIR=/path/to/ns-3/results/information-routing/eval-v5-...
+export IR_NS3_RUN_DIR=/path/to/ns-3/results/information-routing/eval-...
 ```
 
 ## Quick Checks

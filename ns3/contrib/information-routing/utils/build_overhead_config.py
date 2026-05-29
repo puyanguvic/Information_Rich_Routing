@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the v5b_heatmap_fill config that completes the (T x noise) 2D
-sweep for Fig. 2(b) of §5.2.
+"""Generate the operational-overhead microbench config.
 
-Existing v5 sweep gives us 6 cells:
-  (T=500, noise=25%), (T=1000, noise=0/25/50/100%), (T=2000, noise=25%).
-Missing 6 cells:
-  (T=500, noise=0/50/100%), (T=2000, noise=0/50/100%).
-
-Total: 6 scenarios x 5 protocols x 20 seeds = 600 runs.
+5 policies × 20 seeds = 100 runs on the same workload §5.1 uses
+(cascade T=1000ms, hotspot UDP). Each run carries --profileSelector=1
+so the binary emits selector_profile_p50_ns / p99_ns / mean_ns /
+lookups via metadata. The runs are launched under taskset per-core
+pinning by the matching shell launcher so per-lookup ns numbers are
+reproducible.
 """
 from __future__ import annotations
 import json
@@ -28,6 +27,7 @@ COMMON = {
     "simStopTime": 17,
     "sampleInterval": 0.25,
     "startJitter": 0.25,
+    "profileSelector": 1,
 }
 
 PROTOCOLS = [
@@ -50,13 +50,6 @@ PROTOCOLS = [
               "updateBudgetPerSec": 200.0}},
 ]
 
-UDP_BASE = {
-    "appMode": "udp-client", "transport": "udp", "packetSize": 1000,
-    "traffic": "hotspot", "hotspotNode": 0, "flowCount": 72,
-    "flowRate": "45Mbps", "bottleneckLink": 0, "bottleneckRate": "80Mbps",
-    "refreshInterval": 0.025, "refreshStopTime": 15,
-}
-
 
 def cascading_events(links: list[int], t_start: float, t_end: float,
                      period: float, on_fraction: float, penalty: float) -> str:
@@ -74,28 +67,23 @@ def cascading_events(links: list[int], t_start: float, t_end: float,
 
 def main() -> None:
     cascade_links = [0, 1, 2, 3, 4, 5]
-    scenarios = []
-    # Missing cells: (T=500, noise=0/50/100) and (T=2000, noise=0/50/100)
-    for T_ms in (500, 2000):
-        for noise_pct in (0, 50, 100):
-            period = T_ms / 1000.0
-            events = cascading_events(
-                cascade_links, 5.0, 15.0, period, 0.5, 1500
-            )
-            scenarios.append({
-                "name": f"v5b_T{T_ms}ms_noise{noise_pct}pct",
-                "args": {
-                    **UDP_BASE,
-                    "congestionEvents": events,
-                    "metricNoise": noise_pct / 100.0,
-                },
-            })
+    events_1s = cascading_events(cascade_links, 5.0, 15.0, 1.0, 0.5, 1500)
+    scenario_args = {
+        "appMode": "udp-client", "transport": "udp", "packetSize": 1000,
+        "traffic": "hotspot", "hotspotNode": 0, "flowCount": 72,
+        "flowRate": "45Mbps", "bottleneckLink": 0, "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025, "refreshStopTime": 15,
+        "metricNoise": 0.25,
+        "congestionEvents": events_1s,
+    }
+    scenarios = [{"name": "exp9_overhead_cascading_T1000ms",
+                  "args": scenario_args}]
     config = {"common": COMMON, "seeds": SEEDS,
               "protocols": PROTOCOLS, "scenarios": scenarios}
-    out = Path(__file__).parent / "wan_sweep_eval_design_v5b_heatmap_fill.json"
+    out = Path(__file__).parent / "wan_sweep_eval_operational_overhead.json"
     out.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     print(f"[write] {out}")
-    print(f"  6 scenarios x 5 protocols x 20 seeds = 600 runs")
+    print(f"  1 scenario x 5 protocols x 20 seeds = 100 runs")
 
 
 if __name__ == "__main__":

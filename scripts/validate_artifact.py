@@ -27,7 +27,7 @@ REQUIRED_PATHS = [
     "ns3/contrib/information-routing/examples/information-routing-wan-experiment.cc",
     "ns3/contrib/information-routing/utils/run_wan_sweep.py",
     "containerlab/srlinux-clos2x2/clos2x2_srlinux.clab.yaml",
-    "containerlab/srlinux-clos2x2/exp3_nokia_srlinux.yaml",
+    "containerlab/srlinux-clos2x2/nokia_srlinux.yaml",
     "tools/run_containerlab_recovery_cdf.py",
     "tools/run_containerlab_governor_stress.py",
     "tools/run_containerlab_app_recovery.py",
@@ -48,7 +48,7 @@ SKIP_DIRS = {
     "figs/generated",
     "results",
     "tables/generated",
-    "tables/generated_v5",
+    "tables/generated",
 }
 
 TEXT_SUFFIXES = {

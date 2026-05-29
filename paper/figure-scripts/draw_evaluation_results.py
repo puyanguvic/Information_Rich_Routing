@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "figs" / "generated"
 TABLE_OUT = ROOT / "tables" / "generated"
 NS3_RESULTS = Path(os.environ.get("IR_NS3_RESULTS", ROOT / "results" / "information-routing"))
-FALLBACK_SWEEP = NS3_RESULTS / "eval-design-v2-exp1-k-seed1-20260508"
+FALLBACK_SWEEP = NS3_RESULTS / "current"
 CONTAINERLAB_RECOVERY_CSV = OUT / "containerlab_recovery" / "containerlab_recovery_events.csv"
 CONTAINERLAB_GOVERNOR_CSV = OUT / "containerlab_recovery" / "containerlab_governor_stress.csv"
 CONTAINERLAB_APP_CSV_CANDIDATES = [
@@ -105,7 +105,7 @@ def configure_style() -> None:
         )
     else:
         try:
-            plt.style.use("seaborn-v0_8-whitegrid")
+            plt.style.use("default")
         except OSError:
             pass
     plt.rcParams.update(
@@ -143,16 +143,16 @@ def latest_sweep_dir() -> Path | None:
     if configured and (configured / "summary.csv").exists():
         return configured
 
-    v3_candidates = [
+    paper_candidates = [
         path.parent
-        for path in NS3_RESULTS.glob("eval-v3-parallel-*/all-merged/summary.csv")
+        for path in NS3_RESULTS.glob("eval-parallel-*/all-merged/summary.csv")
         if not (path.parent.parent / "INTERRUPTED").exists()
     ]
-    if v3_candidates:
-        return max(v3_candidates, key=lambda path: (path / "summary.csv").stat().st_mtime)
+    if paper_candidates:
+        return max(paper_candidates, key=lambda path: (path / "summary.csv").stat().st_mtime)
 
     candidates: list[Path] = []
-    for pattern in ("weekend-v2-pass*", "eval-design-v2-*", "weekend-smoke"):
+    for pattern in ("eval-parallel-*", "weekend-smoke"):
         candidates.extend(path.parent for path in NS3_RESULTS.glob(f"{pattern}/summary.csv"))
     candidates = [
         path
@@ -166,8 +166,8 @@ def latest_sweep_dir() -> Path | None:
     return None
 
 
-def latest_v4_sweep_dir() -> Path | None:
-    configured = configured_path("IR_V4_SWEEP_DIR")
+def latest_targeted_sweep_dir() -> Path | None:
+    configured = configured_path("IR_TARGETED_SWEEP_DIR")
     if configured:
         if (configured / "summary.csv").exists():
             return configured
@@ -177,7 +177,7 @@ def latest_v4_sweep_dir() -> Path | None:
 
     candidates = [
         path.parent
-        for path in NS3_RESULTS.glob("eval-v4-parallel-*/all-merged/summary.csv")
+        for path in NS3_RESULTS.glob("eval-targeted-*/all-merged/summary.csv")
         if not (path.parent.parent / "INTERRUPTED").exists()
     ]
     if candidates:
@@ -202,8 +202,8 @@ def latest_analysis_dir(sweep: Path | None) -> Path | None:
     return None
 
 
-def latest_v4_analysis_dir(sweep: Path | None) -> Path | None:
-    configured = configured_path("IR_V4_ANALYSIS_DIR")
+def latest_targeted_analysis_dir(sweep: Path | None) -> Path | None:
+    configured = configured_path("IR_TARGETED_ANALYSIS_DIR")
     if configured:
         return configured
     if sweep is None:
@@ -632,7 +632,7 @@ def draw_exp1_admissibility(summary_path: Path | None) -> None:
             axes[1].set_ylim(low, high)
     axes[2].axhline(0, color="#3C4043", linewidth=0.8, linestyle=":")
     axes[0].legend(frameon=False, fontsize=8, loc="upper left")
-    save(fig, "eval_exp1_admissibility_frontier.pdf")
+    save(fig, "eval_admissibility_frontier.pdf")
 
 
 def draw_exp1_freshness_stability(analysis_dir: Path | None) -> None:
@@ -728,7 +728,7 @@ def draw_exp1_freshness_stability(analysis_dir: Path | None) -> None:
 
     for ax in axes:
         style_axis(ax)
-    save(fig, "eval_exp1_freshness_stability.pdf")
+    save(fig, "eval_freshness_stability.pdf")
 
 
 def draw_exp1_contract_governance(summary_path: Path | None, analysis_dir: Path | None) -> None:
@@ -917,7 +917,7 @@ def draw_exp1_contract_governance(summary_path: Path | None, analysis_dir: Path 
         ax.yaxis.label.set_size(COMPACT_LABEL_SIZE)
         ax.title.set_size(COMPACT_TITLE_SIZE)
 
-    save(fig, "eval_exp1_contract_governance.pdf")
+    save(fig, "eval_contract_governance.pdf")
 
 
 def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
@@ -939,7 +939,7 @@ def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
         (64, "exp2_burst_fanin_64"),
         (96, "exp2_burst_fanin_96"),
     ]
-    legacy_apps = [("50%", "exp2_app_mix_50pct"), ("25%", "exp2_app_mix_25pct_latency")]
+    app_mix_cases = [("50%", "exp2_app_mix_50pct"), ("25%", "exp2_app_mix_25pct_latency")]
     app_loads = [
         (30, "exp2_app_trace50_load30"),
         (50, "exp2_app_trace50_load50"),
@@ -970,7 +970,7 @@ def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
     )
     has_data = has_data or any(
         (scenario, protocol, "latency") in miss
-        for _, scenario in [*legacy_apps, *app_loads]
+        for _, scenario in [*app_mix_cases, *app_loads]
         for protocol in PROTOCOLS
     )
     if not has_data:
@@ -1104,17 +1104,17 @@ def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
         axes[3].set_xticklabels([str(load) for load in app_x])
         axes[3].set_xlabel("load")
     else:
-        app_x = list(range(len(legacy_apps)))
+        app_x = list(range(len(app_mix_cases)))
         plot_compact(
             axes[3],
             app_x,
             {
-                protocol: [miss.get((scenario, protocol, "latency")) for _, scenario in legacy_apps]
+                protocol: [miss.get((scenario, protocol, "latency")) for _, scenario in app_mix_cases]
                 for protocol in PROTOCOLS
             },
         )
         axes[3].set_xticks(app_x)
-        axes[3].set_xticklabels([label for label, _ in legacy_apps])
+        axes[3].set_xticklabels([label for label, _ in app_mix_cases])
     axes[3].set_title("(d) App objective", pad=4)
     axes[3].set_ylabel("deadline miss (%)")
 
@@ -1125,7 +1125,7 @@ def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
         ax.yaxis.label.set_size(COMPACT_LABEL_SIZE)
         ax.title.set_size(COMPACT_TITLE_SIZE)
 
-    save(fig, "eval_exp2_traffic_functions.pdf")
+    save(fig, "eval_traffic_functions.pdf")
 
 
 def draw_exp3_scale_robustness(analysis_dir: Path | None) -> None:
@@ -1151,7 +1151,7 @@ def draw_exp3_scale_robustness(analysis_dir: Path | None) -> None:
         (1000, "exp3_stale_refresh_1000ms"),
         (2000, "exp3_stale_refresh_2000ms"),
     ]
-    stale_legacy = [(1000, "exp3_stale_telemetry_1000ms")]
+    stale_fallback = [(1000, "exp3_stale_telemetry_1000ms")]
     noise = [
         ("0", "exp3_noise_0pct"),
         ("25", "exp3_noise_25pct"),
@@ -1165,7 +1165,7 @@ def draw_exp3_scale_robustness(analysis_dir: Path | None) -> None:
         (8, "exp3_diversity_k8"),
     ]
     exp3_scenarios = [scenario for _, scenario in scale]
-    exp3_scenarios.extend(scenario for _, scenario in [*stale, *stale_legacy])
+    exp3_scenarios.extend(scenario for _, scenario in [*stale, *stale_fallback])
     exp3_scenarios.extend(scenario for _, scenario in noise)
     exp3_scenarios.extend(scenario for _, scenario in diversity)
     exp3_scenarios.append("exp3_no_diversity_boundary")
@@ -1201,7 +1201,7 @@ def draw_exp3_scale_robustness(analysis_dir: Path | None) -> None:
 
     action_delay = grouped_mean(event_action, ("scenario", "protocol"), "degraded_share_delay_s")
     recovery_delay = grouped_mean(event_action, ("scenario", "protocol"), "recovery_delay_s")
-    stale_points = stale if any((scenario, "information_routing") in action_delay for _, scenario in stale) else stale_legacy
+    stale_points = stale if any((scenario, "information_routing") in action_delay for _, scenario in stale) else stale_fallback
     stale_x = [value for value, _ in stale_points]
     stale_series = {
         "information_routing": [
@@ -1300,16 +1300,16 @@ def draw_exp3_scale_robustness(analysis_dir: Path | None) -> None:
         ax.xaxis.label.set_size(COMPACT_LABEL_SIZE)
         ax.yaxis.label.set_size(COMPACT_LABEL_SIZE)
         ax.title.set_size(COMPACT_TITLE_SIZE)
-    save(fig, "eval_exp3_scale_robustness.pdf")
+    save(fig, "eval_scale_robustness.pdf")
 
 
-def draw_exp1_contract_governance_v3(summary_path: Path | None, analysis_dir: Path | None) -> None:
+def draw_exp1_contract_governance(summary_path: Path | None, analysis_dir: Path | None) -> None:
     aggregate = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_aggregate.csv")
     selection_rows = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_selection_timeseries.csv")
     event_rows = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_event_action.csv")
     summary_rows = read_rows(summary_path)
-    v4_analysis = latest_v4_analysis_dir(latest_v4_sweep_dir())
-    offset_event_rows = read_rows(None if v4_analysis is None else v4_analysis / "wan_sweep_event_action.csv")
+    targeted_analysis = latest_targeted_analysis_dir(latest_targeted_sweep_dir())
+    offset_event_rows = read_rows(None if targeted_analysis is None else targeted_analysis / "wan_sweep_event_action.csv")
     if not aggregate or not any(row.get("scenario", "").startswith("exp1_") for row in aggregate):
         return
 
@@ -1482,7 +1482,7 @@ def draw_exp1_contract_governance_v3(summary_path: Path | None, analysis_dir: Pa
         ax.set_box_aspect(CONTRACT_PANEL_ASPECT)
     ax0b.set_box_aspect(CONTRACT_PANEL_ASPECT)
     use_twin_right_frame(axes[0])
-    save_pdf(fig, "eval_exp1_contract_governance")
+    save_pdf(fig, "eval_contract_governance")
 
 
 def write_exp1_contract_table(
@@ -1535,16 +1535,16 @@ def write_exp1_contract_table(
             f"{fmt_num(changes.get((scenario, protocol)), 0)} \\\\"
         )
     lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table*}", ""])
-    (TABLE_OUT / "eval_exp1_contract_counters.tex").write_text("\n".join(lines), encoding="utf-8")
+    (TABLE_OUT / "eval_contract_counters.tex").write_text("\n".join(lines), encoding="utf-8")
 
 
-def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
+def draw_exp2_traffic_functions(analysis_dir: Path | None) -> None:
     aggregate = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_aggregate.csv")
     class_agg = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_class_summary_aggregate.csv")
     selection_rows = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_selection_timeseries.csv")
-    v4_analysis = latest_v4_analysis_dir(latest_v4_sweep_dir())
-    v4_aggregate = read_rows(None if v4_analysis is None else v4_analysis / "wan_sweep_aggregate.csv")
-    v4_event_agg = read_rows(None if v4_analysis is None else v4_analysis / "wan_sweep_event_action_aggregate.csv")
+    targeted_analysis = latest_targeted_analysis_dir(latest_targeted_sweep_dir())
+    targeted_aggregate = read_rows(None if targeted_analysis is None else targeted_analysis / "wan_sweep_aggregate.csv")
+    targeted_event_agg = read_rows(None if targeted_analysis is None else targeted_analysis / "wan_sweep_event_action_aggregate.csv")
     if not aggregate or not any(row.get("scenario", "").startswith("exp2_") for row in aggregate):
         return
 
@@ -1555,10 +1555,10 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
     writes = grouped_mean(aggregate, ("scenario", "protocol"), "control_metric_writes_mean")
     class_miss = grouped_mean(class_agg, ("scenario", "protocol", "traffic_class"), "deadline_miss_pct_mean")
     class_bulk = grouped_mean(class_agg, ("scenario", "protocol", "traffic_class"), "rx_mbps_mean")
-    v4_loss = grouped_mean(v4_aggregate, ("scenario", "protocol"), "loss_rate_pct_mean")
-    v4_hot_share = grouped_mean(v4_event_agg, ("scenario", "protocol"), "weighted_nonpriority_selected_degraded_share_mean")
-    v4_priority_share = grouped_mean(v4_event_agg, ("scenario", "protocol"), "weighted_priority_selected_degraded_share_mean")
-    v4_nonpriority_share = grouped_mean(v4_event_agg, ("scenario", "protocol"), "weighted_nonpriority_selected_degraded_share_mean")
+    targeted_loss = grouped_mean(targeted_aggregate, ("scenario", "protocol"), "loss_rate_pct_mean")
+    targeted_hot_share = grouped_mean(targeted_event_agg, ("scenario", "protocol"), "weighted_nonpriority_selected_degraded_share_mean")
+    targeted_priority_share = grouped_mean(targeted_event_agg, ("scenario", "protocol"), "weighted_priority_selected_degraded_share_mean")
+    targeted_nonpriority_share = grouped_mean(targeted_event_agg, ("scenario", "protocol"), "weighted_nonpriority_selected_degraded_share_mean")
 
     severities = [("mild", "exp2_degradation_mild"), ("mod.", "exp2_degradation_moderate"),
                   ("high", "exp2_degradation_high"), ("extr.", "exp2_degradation_extreme")]
@@ -1684,8 +1684,8 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
         ys = []
         for fanin in collision_fanins:
             scenario = f"exp2_burst_collision_fanin_{fanin}"
-            hot = v4_hot_share.get((scenario, protocol))
-            loss_value = v4_loss.get((scenario, protocol))
+            hot = targeted_hot_share.get((scenario, protocol))
+            loss_value = targeted_loss.get((scenario, protocol))
             if hot is None or loss_value is None:
                 continue
             xs.append(hot * 100.0)
@@ -1720,7 +1720,7 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
     set_padded_ylim(
         axes[2],
         [
-            v4_loss.get((f"exp2_burst_collision_fanin_{fanin}", protocol))
+            targeted_loss.get((f"exp2_burst_collision_fanin_{fanin}", protocol))
             for fanin in collision_fanins
             for protocol in collision_protocols
         ],
@@ -1729,8 +1729,8 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
     hot_limits = padded_limits(
         [
             None
-            if v4_hot_share.get((f"exp2_burst_collision_fanin_{fanin}", protocol)) is None
-            else v4_hot_share[(f"exp2_burst_collision_fanin_{fanin}", protocol)] * 100.0
+            if targeted_hot_share.get((f"exp2_burst_collision_fanin_{fanin}", protocol)) is None
+            else targeted_hot_share[(f"exp2_burst_collision_fanin_{fanin}", protocol)] * 100.0
             for fanin in collision_fanins
             for protocol in collision_protocols
         ],
@@ -1770,8 +1770,8 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
         "class_aware_ir": (3, 5),
     }
     for protocol in class_protocols:
-        x_stats = share_stats(v4_priority_share, protocol)
-        y_stats = share_stats(v4_nonpriority_share, protocol)
+        x_stats = share_stats(targeted_priority_share, protocol)
+        y_stats = share_stats(targeted_nonpriority_share, protocol)
         if x_stats is None or y_stats is None:
             continue
         x_center, x_low, x_high = x_stats
@@ -1813,12 +1813,12 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
         return centers
 
     class_xlim = padded_limits(
-        share_centers(v4_priority_share),
+        share_centers(targeted_priority_share),
         pad_ratio=0.18,
         include_zero=True,
     )
     class_ylim = padded_limits(
-        share_centers(v4_nonpriority_share),
+        share_centers(targeted_nonpriority_share),
         pad_ratio=0.18,
         include_zero=True,
     )
@@ -1829,7 +1829,7 @@ def draw_exp2_traffic_functions_v3(analysis_dir: Path | None) -> None:
 
     style_compact_axes(axes)
     use_twin_right_frame(axes[1])
-    save_pdf(fig, "eval_exp2_traffic_functions")
+    save_pdf(fig, "eval_traffic_functions")
 
 
 def write_exp2_service_table(
@@ -1897,10 +1897,10 @@ def write_exp2_service_table(
             if row_index != row_count:
                 lines.append("\\addlinespace")
     lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table*}", ""])
-    (TABLE_OUT / "eval_exp2_service_summary.tex").write_text("\n".join(lines), encoding="utf-8")
+    (TABLE_OUT / "eval_service_summary.tex").write_text("\n".join(lines), encoding="utf-8")
 
 
-def draw_v4_targeted_checks(analysis_dir: Path | None) -> None:
+def draw_targeted_checks(analysis_dir: Path | None) -> None:
     aggregate = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_aggregate.csv")
     event_agg = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_event_action_aggregate.csv")
     if not aggregate or not any(row.get("scenario", "").startswith("exp1_action_offset") for row in aggregate):
@@ -2091,10 +2091,10 @@ def draw_v4_targeted_checks(analysis_dir: Path | None) -> None:
     )
 
     style_compact_axes(axes)
-    save_png_and_pdf(fig, "eval_v4_targeted_checks")
+    save_png_and_pdf(fig, "eval_targeted_checks")
 
 
-def draw_exp3_scale_robustness_v3(summary_path: Path | None, analysis_dir: Path | None) -> None:
+def draw_exp3_scale_robustness(summary_path: Path | None, analysis_dir: Path | None) -> None:
     aggregate = read_rows(None if analysis_dir is None else analysis_dir / "wan_sweep_aggregate.csv")
     summary_rows = read_rows(summary_path)
     if not aggregate or not any(row.get("scenario", "").startswith("exp3_") for row in aggregate):
@@ -2190,7 +2190,7 @@ def draw_exp3_scale_robustness_v3(summary_path: Path | None, analysis_dir: Path 
     use_twin_right_frame(axes[1])
     ax0b.grid(False)
     ax1b.grid(False)
-    save_pdf(fig, "eval_exp3_scale_robustness")
+    save_pdf(fig, "eval_scale_robustness")
 
 
 def write_exp3_boundary_table(
@@ -2232,10 +2232,10 @@ def write_exp3_boundary_table(
             f"{fmt_num(writes.get((scenario, 'information_routing')), 0)} \\\\"
         )
     lines.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table*}", ""])
-    (TABLE_OUT / "eval_exp3_boundary_summary.tex").write_text("\n".join(lines), encoding="utf-8")
+    (TABLE_OUT / "eval_boundary_summary.tex").write_text("\n".join(lines), encoding="utf-8")
 
 
-def draw_containerlab_device_evidence_v3() -> None:
+def draw_containerlab_device_evidence() -> None:
     cases = ["No ev.", "Degr.", "Burst", "Class"]
     rtt_ecmp = [2.1, 60.9, 120.0, 0.3]
     rtt_ir = [0.9, 0.6, 0.8, 0.7]
@@ -2278,7 +2278,7 @@ def draw_containerlab_device_evidence_v3() -> None:
     ax.set_xlabel("device scenario")
     legend_if_any(ax, loc="upper left", fontsize=COMPACT_LEGEND_SIZE, handlelength=1.0, borderpad=0.1)
     style_compact_axes([ax])
-    save_png_and_pdf(fig, "eval_exp3_device_evidence")
+    save_png_and_pdf(fig, "eval_device_evidence")
 
 
 def draw_containerlab_recovery_cdf() -> None:
@@ -2396,8 +2396,8 @@ def draw_containerlab_recovery_cdf() -> None:
     ax.tick_params(labelsize=COMPACT_TICK_SIZE, pad=1.0)
     ax.xaxis.label.set_size(COMPACT_LABEL_SIZE)
     ax.yaxis.label.set_size(COMPACT_LABEL_SIZE)
-    fig.savefig(OUT / "eval_exp3_containerlab_recovery_cdf.pdf")
-    fig.savefig(OUT / "eval_exp3_containerlab_recovery_cdf.png", dpi=300)
+    fig.savefig(OUT / "eval_containerlab_probe_cdf.pdf")
+    fig.savefig(OUT / "eval_containerlab_probe_cdf.png", dpi=300)
     plt.close(fig)
 
     fault_labels = {
@@ -2644,8 +2644,8 @@ def draw_containerlab_app_recovery() -> None:
         "\\begin{table*}[!t]",
         "\\centering",
         "\\caption{Application-facing product router-image validation on SR Linux. The",
-        f"overall block averages {rows_per_policy} experiment cells per policy: {fault_count} fault classes, {worker_count} IO-worker",
-        f"settings, and {repeat_count} repeats. Each cell contains {task_count} measured IO tasks. Jitter and",
+        f"overall block averages {rows_per_policy} trial runs per policy: {fault_count} fault classes, {worker_count} IO-worker",
+        f"settings, and {repeat_count} repeats, for {rows_per_policy * task_count:,} measured IO tasks. Jitter and",
         "hang are mean task occurrence; actions, commits, and device time are per trial.",
         "The fault block reports hang occurrence, averaged over worker settings. NHG",
         "edits are next-hop-group active-view edits; slow edits are route creation,",
@@ -2712,9 +2712,9 @@ def main() -> None:
     analysis = latest_analysis_dir(sweep)
     summary = None if sweep is None else sweep / "summary.csv"
 
-    draw_exp1_contract_governance_v3(summary, analysis)
-    draw_exp2_traffic_functions_v3(analysis)
-    draw_exp3_scale_robustness_v3(summary, analysis)
+    draw_exp1_contract_governance(summary, analysis)
+    draw_exp2_traffic_functions(analysis)
+    draw_exp3_scale_robustness(summary, analysis)
     draw_containerlab_recovery_cdf()
     draw_containerlab_app_recovery()
 

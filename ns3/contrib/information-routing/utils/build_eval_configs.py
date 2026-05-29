@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Generate v5 sweep configs for the EVAL_REDESIGN.md Phase-1 experiments.
+"""Generate the current paper evaluation sweep configs.
 
 Each config is an independent JSON file consumed by run_wan_sweep.py. The
 mapping from §5 subsections (EVAL_REDESIGN.md) to JSON files is:
 
-  §5.2 Mechanism boundary check        -> wan_sweep_eval_design_v5_exp1_mechanism.json
-  §5.3 Service gap on hard workloads   -> wan_sweep_eval_design_v5_exp2_service_gap.json
-  §5.5 Cascading impairment & recovery -> wan_sweep_eval_design_v5_exp4_cascading.json
-  §5.6 Multi-class & per-class IR      -> wan_sweep_eval_design_v5_exp5_multiclass.json
-  §5.4 Service/control Pareto + noise  -> wan_sweep_eval_design_v5_exp6_noise_pareto.json
-  §5.8 Mechanism attribution/ablation  -> wan_sweep_eval_design_v5_exp7_ablation.json
-  §5.9 Parameter robustness            -> wan_sweep_eval_design_v5_exp8_sensitivity.json
-  §5.11 Adversarial robustness         -> wan_sweep_eval_design_v5_exp11_adversarial.json
+  §5.1 Mechanism boundary check        -> wan_sweep_eval_mechanism.json
+  §5.2 Service gap on hard workloads   -> wan_sweep_eval_service_gap.json
+  §5.2 Cascading impairment & recovery -> wan_sweep_eval_cascading.json
+  §5.2 Multi-class & per-class IR      -> wan_sweep_eval_multiclass.json
+  §5.2 Service/control Pareto + noise  -> wan_sweep_eval_noise_pareto.json
+  §5.1 Mechanism attribution/ablation  -> wan_sweep_eval_governor_ablation.json
+  §5.2 Parameter robustness            -> wan_sweep_eval_sensitivity.json
+  §5.2 Adversarial robustness          -> wan_sweep_eval_adversarial.json
 
 Configs requiring Phase-2 binary work (E2 per-link rates, E6 flowSchedule,
 E7 profileSelector) are intentionally not emitted by this script:
@@ -81,11 +81,10 @@ PROTOCOLS = [
 
 SEEDS = list(range(1, 21))  # N=20 per EVAL_REDESIGN.md R1.
 
-# Default topology for Phase-1 experiments. Uses the v3-validated shape:
-# 6 regions × 2 metros × 2 edges = 28 nodes. The v3 sweep on this shape
-# (`exp2_degradation_high`, `paper-design-20260508`) is the only known
-# configuration that produces measurable service separation between Static
-# and traffic-aware policies under hotspot + link-0 bottleneck. We re-use it.
+# Default topology for the paper experiments: 6 regions × 2 metros × 2 edges.
+# This shape produces measurable service separation between Static and
+# traffic-aware policies under hotspot + link-0 bottleneck while keeping
+# wall-clock runtime low enough for repeated sweeps.
 #
 # A larger fat-tree (T_ft8) is a Phase-2 item: it needs either a GraphML
 # generator or per-link rate support (E2).
@@ -500,19 +499,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path,
                         default=Path(__file__).parent,
-                        help="directory to write the v5 JSON configs into")
+                        help="directory to write the JSON configs into")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp1_mechanism.json", make_exp1_mechanism())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp2_service_gap.json", make_exp2_service_gap())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp4_cascading.json", make_exp4_cascading())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp5_multiclass.json", make_exp5_multiclass())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp6_noise_pareto.json", make_exp6_noise_pareto())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp7_ablation.json", make_exp7_ablation())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp8_sensitivity.json", make_exp8_sensitivity())
-    write_config(args.out_dir, "wan_sweep_eval_design_v5_exp11_adversarial.json", make_exp11_adversarial())
+    write_config(args.out_dir, "wan_sweep_eval_mechanism.json", make_exp1_mechanism())
+    write_config(args.out_dir, "wan_sweep_eval_service_gap.json", make_exp2_service_gap())
+    write_config(args.out_dir, "wan_sweep_eval_cascading.json", make_exp4_cascading())
+    write_config(args.out_dir, "wan_sweep_eval_multiclass.json", make_exp5_multiclass())
+    write_config(args.out_dir, "wan_sweep_eval_noise_pareto.json", make_exp6_noise_pareto())
+    write_config(args.out_dir, "wan_sweep_eval_governor_ablation.json", make_exp7_ablation())
+    write_config(args.out_dir, "wan_sweep_eval_sensitivity.json", make_exp8_sensitivity())
+    write_config(args.out_dir, "wan_sweep_eval_adversarial.json", make_exp11_adversarial())
     return 0
 
 

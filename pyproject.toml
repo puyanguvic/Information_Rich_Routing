@@ -5,7 +5,6 @@ extend-exclude = [
   "results",
   "figs/generated",
   "tables/generated",
-  "tables/generated_v5",
 ]
 
 [tool.ruff.lint]

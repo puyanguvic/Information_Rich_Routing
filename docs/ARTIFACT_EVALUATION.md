@@ -63,13 +63,13 @@ python3 /path/to/ns-3-dev/contrib/information-routing/utils/analyze_wan_sweep.py
 The versioned paper configs are in:
 
 ```bash
-ns3/contrib/information-routing/utils/wan_sweep_eval_design_v5_*.json
+ns3/contrib/information-routing/utils/wan_sweep_eval_*.json
 ```
 
 The parallel launcher is:
 
 ```bash
-ns3/contrib/information-routing/utils/run_eval_v5_parallel.sh
+ns3/contrib/information-routing/utils/run_eval_parallel.sh
 ```
 
 See `docs/NS3_SETUP.md` for a complete command sequence.
@@ -77,8 +77,8 @@ See `docs/NS3_SETUP.md` for a complete command sequence.
 Useful environment variables:
 
 ```bash
-RUN_ID=eval-v5-example
-OUT_ROOT=/path/to/ns-3-dev/results/information-routing/eval-v5-example
+RUN_ID=eval-example
+OUT_ROOT=/path/to/ns-3-dev/results/information-routing/eval-example
 MAX_PARALLEL=24
 TIMEOUT_SEC=1200
 SEEDS="1 2 3 4 5"
@@ -126,7 +126,7 @@ result tree when needed:
 
 ```bash
 export IR_NS3_RESULTS=/path/to/ns-3-dev/results/information-routing
-export IR_NS3_RUN_DIR=/path/to/ns-3-dev/results/information-routing/eval-v5-example
+export IR_NS3_RUN_DIR=/path/to/ns-3-dev/results/information-routing/eval-example
 ```
 
 Then run the relevant script under `paper/figure-scripts/` or `tools/`.

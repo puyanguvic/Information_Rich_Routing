@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
-"""Generate the v5_exp3 asymmetric-capacity config.
+"""Generate the service heatmap fill config that completes the (T x noise) 2D
+sweep for Fig. 2(b) of §5.2.
 
-Four asymmetry conditions on top of the cascading T=500ms workload
-(the regime that defeats folded discipline in §5.2):
+The main sweep gives us 6 cells:
+  (T=500, noise=25%), (T=1000, noise=0/25/50/100%), (T=2000, noise=25%).
+Missing 6 cells:
+  (T=500, noise=0/50/100%), (T=2000, noise=0/50/100%).
 
-  A1 baseline       : just the existing bottleneck (link 0 @ 80Mbps)
-                      — control row, reproduces the T=500 cell.
-  A2 spine narrowed : links 0..5 (the 6-core ring) all capped at 60Mbps
-                      — homogeneous narrowed spine.
-  A3 chord narrowed : links 6..9 (4 chords) capped at 60Mbps; spine
-                      ring stays at 100Mbps default.
-  A4 mixed          : A2 ∪ A3 (entire backbone narrowed).
-
-4 scenarios × 5 protocols × 20 seeds = 400 runs.
+Total: 6 scenarios x 5 protocols x 20 seeds = 600 runs.
 """
 from __future__ import annotations
 import json
@@ -55,6 +50,13 @@ PROTOCOLS = [
               "updateBudgetPerSec": 200.0}},
 ]
 
+UDP_BASE = {
+    "appMode": "udp-client", "transport": "udp", "packetSize": 1000,
+    "traffic": "hotspot", "hotspotNode": 0, "flowCount": 72,
+    "flowRate": "45Mbps", "bottleneckLink": 0, "bottleneckRate": "80Mbps",
+    "refreshInterval": 0.025, "refreshStopTime": 15,
+}
+
 
 def cascading_events(links: list[int], t_start: float, t_end: float,
                      period: float, on_fraction: float, penalty: float) -> str:
@@ -70,46 +72,30 @@ def cascading_events(links: list[int], t_start: float, t_end: float,
     return ",".join(events)
 
 
-def link_rate_map(spec_pairs: list[tuple[int, str]]) -> str:
-    return ",".join(f"{idx}:{rate}" for idx, rate in spec_pairs)
-
-
 def main() -> None:
     cascade_links = [0, 1, 2, 3, 4, 5]
-    events = cascading_events(cascade_links, 5.0, 15.0, 0.5, 0.5, 1500)
-
-    base = {
-        "appMode": "udp-client", "transport": "udp", "packetSize": 1000,
-        "traffic": "hotspot", "hotspotNode": 0, "flowCount": 72,
-        "flowRate": "45Mbps", "bottleneckLink": 0, "bottleneckRate": "80Mbps",
-        "refreshInterval": 0.025, "refreshStopTime": 15,
-        "metricNoise": 0.25,
-        "congestionEvents": events,
-    }
-
-    # Spine ring links 1..5 (link 0 is the bottleneck already).
-    spine_map = link_rate_map([(i, "60Mbps") for i in range(1, 6)])
-    # Chord links 6..9.
-    chord_map = link_rate_map([(i, "60Mbps") for i in range(6, 10)])
-    mixed_map = link_rate_map(
-        [(i, "60Mbps") for i in range(1, 10)]
-    )
-
-    scenarios = [
-        {"name": "exp3_asym_a1_baseline", "args": {**base}},
-        {"name": "exp3_asym_a2_spine_narrowed",
-         "args": {**base, "linkRateMap": spine_map}},
-        {"name": "exp3_asym_a3_chord_narrowed",
-         "args": {**base, "linkRateMap": chord_map}},
-        {"name": "exp3_asym_a4_mixed",
-         "args": {**base, "linkRateMap": mixed_map}},
-    ]
+    scenarios = []
+    # Missing cells: (T=500, noise=0/50/100) and (T=2000, noise=0/50/100)
+    for T_ms in (500, 2000):
+        for noise_pct in (0, 50, 100):
+            period = T_ms / 1000.0
+            events = cascading_events(
+                cascade_links, 5.0, 15.0, period, 0.5, 1500
+            )
+            scenarios.append({
+                "name": f"heatmap_T{T_ms}ms_noise{noise_pct}pct",
+                "args": {
+                    **UDP_BASE,
+                    "congestionEvents": events,
+                    "metricNoise": noise_pct / 100.0,
+                },
+            })
     config = {"common": COMMON, "seeds": SEEDS,
               "protocols": PROTOCOLS, "scenarios": scenarios}
-    out = Path(__file__).parent / "wan_sweep_eval_design_v5_exp3_asymmetry.json"
+    out = Path(__file__).parent / "wan_sweep_eval_service_heatmap.json"
     out.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     print(f"[write] {out}")
-    print(f"  4 scenarios x 5 protocols x 20 seeds = 400 runs")
+    print(f"  6 scenarios x 5 protocols x 20 seeds = 600 runs")
 
 
 if __name__ == "__main__":

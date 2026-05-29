@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the v5_exp12 AI collective phase stress config.
+"""Generate the AI workload stress config.
 
 Three AI workload phases overlaid on the §5.2 cascade T=500ms
 impairment, all on the same tiered topology:
@@ -10,7 +10,7 @@ impairment, all on the same tiered topology:
 
 3 scenarios × 5 protocols × 20 seeds = 300 runs.
 
-See EXP12_DESIGN.md for the per-phase parametrisation rationale.
+The scenarios are the AI workload block used by the paper evaluation.
 """
 from __future__ import annotations
 import json
@@ -145,7 +145,7 @@ def main() -> None:
         "protocols": PROTOCOLS,
         "scenarios": [allreduce, checkpoint, inference],
     }
-    out = Path(__file__).parent / "wan_sweep_eval_design_v5_exp12_ai_phases.json"
+    out = Path(__file__).parent / "wan_sweep_eval_ai_workloads.json"
     out.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     print(f"[write] {out}")
     print(f"  3 scenarios x 5 protocols x 20 seeds = 300 runs")

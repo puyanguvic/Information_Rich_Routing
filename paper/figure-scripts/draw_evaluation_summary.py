@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the five v5 §5 figure groups (11 panels total) from the v5
-sweep artifacts.
+"""Generate the §5 figure groups from the current evaluation artifacts.
 
 Layout (panel distribution 4 + 3 + 2 + 1 + 1):
   Fig.1 (4 separately rendered panels, assembled in LaTeX)  Mechanism
@@ -47,7 +46,7 @@ OUT = ROOT / "figs" / "generated"
 RUN_DIR = Path(
     os.environ.get(
         "IR_NS3_RUN_DIR",
-        ROOT / "results" / "information-routing" / "eval-v5-20260521-1428",
+        ROOT / "results" / "information-routing" / "current",
     )
 )
 RUN_DIR_HEATMAP_FILL_GLOB = Path(
@@ -59,7 +58,7 @@ RUN_DIR_EXP9_GLOB = Path(
 
 
 def find_exp9_dir() -> Path | None:
-    candidates = sorted(RUN_DIR_EXP9_GLOB.glob("eval-v5-exp9-overhead-*"))
+    candidates = sorted(RUN_DIR_EXP9_GLOB.glob("eval-overhead-*"))
     return candidates[-1] if candidates else None
 
 CONTAINERLAB_RECOVERY_CSV = OUT / "containerlab_recovery" / "containerlab_recovery_events.csv"
@@ -174,7 +173,7 @@ def percentile(values: list[float], pct: float) -> float:
 
 
 def find_heatmap_fill_dir() -> Path | None:
-    candidates = sorted(RUN_DIR_HEATMAP_FILL_GLOB.glob("eval-v5b-heatmap-*"))
+    candidates = sorted(RUN_DIR_HEATMAP_FILL_GLOB.glob("eval-service-heatmap-*"))
     return candidates[-1] if candidates else None
 
 
@@ -263,6 +262,7 @@ def figure_mechanism(run_dir: Path) -> None:
         print(f"[save] {stem}.pdf + .png")
 
     def draw_writes_scope(ax: plt.Axes) -> None:
+        series: dict[str, list[float]] = {}
         for proto in aware_protos:
             ys, lo, hi = [], [], []
             for k in ks:
@@ -272,12 +272,42 @@ def figure_mechanism(run_dir: Path) -> None:
                 ys.append(m); lo.append(m - h); hi.append(m + h)
             ax.plot(ks, ys, color=mechanism_colors[proto], marker=MARKERS[proto],
                     markersize=4.0, linewidth=2.0, label=mechanism_short_labels[proto])
+            series[proto] = ys
+        if (
+            series.get("load_aware_ecmp")
+            and series.get("information_routing")
+            and math.isfinite(series["load_aware_ecmp"][-1])
+            and math.isfinite(series["information_routing"][-1])
+            and series["information_routing"][-1] > 0
+        ):
+            cut = series["load_aware_ecmp"][-1] / series["information_routing"][-1]
+            ax.axhline(
+                series["information_routing"][-1],
+                color=mechanism_colors["information_routing"],
+                linestyle=":",
+                linewidth=1.0,
+            )
+            ax.annotate(
+                f"{cut:.0f}x fewer\nwrites",
+                xy=(8, series["information_routing"][-1]),
+                xytext=(3.0, 2.6e4),
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color=mechanism_colors["information_routing"],
+                    linewidth=0.7,
+                ),
+                color=mechanism_colors["information_routing"],
+                fontsize=6.2,
+                ha="left",
+                va="center",
+                bbox=dict(facecolor="white", edgecolor="white", alpha=1.0, pad=0.8),
+            )
         ax.set_xscale("log", base=2); ax.set_yscale("log")
         ax.set_xticks(ks); ax.set_xticklabels([str(k) for k in ks])
         ax.set_xlim(0.9, 8.9)
-        ax.set_ylim(1.4e3, 8.0e6)
+        ax.set_ylim(1.2e3, 4.2e6)
         ax.set_xlabel("Candidate scope K")
-        ax.set_ylabel("Metric writes")
+        ax.set_ylabel("Preference writes")
         style_mechanism_axis(ax)
         leg = ax.legend(
             loc="upper left",
@@ -314,16 +344,21 @@ def figure_mechanism(run_dir: Path) -> None:
         factors = [chain[k] for k in ("hys", "damp", "dwell", "budget")]
         xs = np.arange(len(names))
         bar_colors = ["#B7BBC1", "#B7BBC1", "#B7BBC1", mechanism_colors["information_routing"]]
-        ax.bar(xs, [-math.log10(f) for f in factors], color=bar_colors,
-               edgecolor="#777777", linewidth=0.4, zorder=2)
+        heights = [-math.log10(f) for f in factors]
+        ax.axhline(0, color="#777777", linewidth=0.7)
+        ax.bar(xs, heights, color=bar_colors, edgecolor="#777777", linewidth=0.4, zorder=2)
         for i, f in enumerate(factors):
-            ax.text(i, -math.log10(f) + 0.05, f"{1/f:.0f}x",
-                    ha="center", va="bottom", fontsize=7.0,
+            height = heights[i]
+            va = "bottom" if height >= 0 else "top"
+            dy = 0.05 if height >= 0 else -0.05
+            label = f"{1/f:.1f}x" if 1 / f < 10 else f"{1/f:.0f}x"
+            ax.text(i, height + dy, label,
+                    ha="center", va=va, fontsize=7.0,
                     color="#7A7F87" if i < 3 else mechanism_colors["information_routing"])
         ax.set_xticks(xs)
         ax.set_xticklabels(names, fontsize=6.5)
-        ax.set_ylabel("Reduction (log10)")
-        ax.set_ylim(0, 3.3)
+        ax.set_ylabel("Step cut (log10)")
+        ax.set_ylim(-0.35, 2.55)
         style_mechanism_axis(ax)
 
     def draw_write_timeline(ax: plt.Axes) -> None:
@@ -378,6 +413,7 @@ def figure_mechanism(run_dir: Path) -> None:
         style_inside_legend(leg)
 
     def draw_movement_scope(ax: plt.Axes) -> None:
+        series: dict[str, list[float]] = {}
         for proto in aware_protos:
             ys, lo, hi = [], [], []
             for k in ks:
@@ -389,12 +425,35 @@ def figure_mechanism(run_dir: Path) -> None:
                 hi.append(max(m + h, 0.5))
             ax.plot(ks, ys, color=mechanism_colors[proto], marker=MARKERS[proto],
                     markersize=4.0, linewidth=2.0, label=mechanism_short_labels[proto])
+            series[proto] = ys
+        if (
+            series.get("load_aware_ecmp")
+            and series.get("information_routing")
+            and math.isfinite(series["load_aware_ecmp"][-1])
+            and math.isfinite(series["information_routing"][-1])
+        ):
+            ax.annotate(
+                f"IR {series['information_routing'][-1]:.0f}\n"
+                f"LA {series['load_aware_ecmp'][-1]:.0f}",
+                xy=(8, series["information_routing"][-1]),
+                xytext=(4.15, 70),
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color=mechanism_colors["information_routing"],
+                    linewidth=0.7,
+                ),
+                color=mechanism_colors["information_routing"],
+                fontsize=6.2,
+                ha="left",
+                va="center",
+                bbox=dict(facecolor="white", edgecolor="white", alpha=1.0, pad=0.8),
+            )
         ax.set_xscale("log", base=2); ax.set_yscale("log")
         ax.set_xticks(ks); ax.set_xticklabels([str(k) for k in ks])
         ax.set_xlim(0.9, 8.9)
-        ax.set_ylim(0.32, 3000)
+        ax.set_ylim(0.55, 1400)
         ax.set_xlabel("Candidate scope K")
-        ax.set_ylabel("Best-route changes")
+        ax.set_ylabel("Active changes")
         style_mechanism_axis(ax)
         leg = ax.legend(
             loc="lower left",
@@ -409,11 +468,11 @@ def figure_mechanism(run_dir: Path) -> None:
         )
         style_inside_legend(leg)
 
-    render_panel("eval_v5_fig1a_writes_scope", draw_writes_scope)
-    render_panel("eval_v5_fig1b_knob_contribution", draw_knob_contribution)
-    render_panel("eval_v5_fig1c_write_timeline", draw_write_timeline)
-    render_panel("eval_v5_fig1d_movement_scope", draw_movement_scope)
-    for obsolete in ("eval_v5_fig1_mechanism.pdf", "eval_v5_fig1_mechanism.png"):
+    render_panel("eval_mechanism_writes_scope", draw_writes_scope)
+    render_panel("eval_mechanism_governor_effect", draw_knob_contribution)
+    render_panel("eval_mechanism_write_timeline", draw_write_timeline)
+    render_panel("eval_mechanism_movement_scope", draw_movement_scope)
+    for obsolete in ("eval_mechanism_combined.pdf", "eval_mechanism_combined.png"):
         path = OUT / obsolete
         if path.exists():
             path.unlink()
@@ -479,7 +538,8 @@ def figure_service(run_dir: Path) -> None:
 
     def draw_delivery_regimes(ax: plt.Axes) -> None:
         xs = np.arange(len(regimes))
-        for proto in ("load_aware_ecmp", "conga_like", "information_routing"):
+        delivery_series: dict[str, list[float]] = {}
+        for proto in ("conga_like", "information_routing"):
             ys, hs = [], []
             for batch, scen, _ in regimes:
                 v = cell(run_dir, batch, scen, proto, "summary", "delivery_ratio")
@@ -488,21 +548,43 @@ def figure_service(run_dir: Path) -> None:
                         color=service_colors[proto],
                         markersize=4.0, linewidth=2.0, elinewidth=0.7, capsize=2,
                         label=service_short_labels[proto])
+            delivery_series[proto] = ys
         ax.axhline(83.05, color=service_colors["static"], linewidth=1.0,
                    linestyle=":", alpha=0.95, label="Static")
+        if (
+            delivery_series.get("conga_like")
+            and delivery_series.get("information_routing")
+            and len(delivery_series["conga_like"]) > 1
+        ):
+            gap = delivery_series["information_routing"][1] - delivery_series["conga_like"][1]
+            ax.annotate(
+                f"+{gap:.2f} pp",
+                xy=(1, delivery_series["information_routing"][1]),
+                xytext=(1.32, 101.6),
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color=service_colors["information_routing"],
+                    linewidth=0.7,
+                ),
+                color=service_colors["information_routing"],
+                fontsize=6.2,
+                ha="left",
+                va="center",
+                bbox=dict(facecolor="white", edgecolor="white", alpha=1.0, pad=0.7),
+            )
         ax.set_xticks(xs)
         ax.set_xticklabels([r[2] for r in regimes], fontsize=6.8, rotation=0)
         ax.set_ylabel("Delivery (%)")
-        ax.set_ylim(78, 110)
+        ax.set_ylim(78, 105)
         style_service_axis(ax)
         leg = ax.legend(
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.98),
-            ncol=4,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.02),
+            ncol=3,
             frameon=True,
-            fontsize=5.6,
-            columnspacing=0.38,
-            handlelength=0.85,
+            fontsize=5.8,
+            columnspacing=0.45,
+            handlelength=0.9,
             handletextpad=0.25,
             borderpad=0.20,
             labelspacing=0.15,
@@ -531,7 +613,7 @@ def figure_service(run_dir: Path) -> None:
         if fill_dir is not None and fill_dir.exists():
             for T in (500, 2000):
                 for n in (0, 50, 100):
-                    scen = f"v5b_T{T}ms_noise{n}pct"
+                    scen = f"heatmap_T{T}ms_noise{n}pct"
                     c_vals, i_vals = [], []
                     for sd in sorted(fill_dir.glob("seed*")):
                         seed_n = sd.name.replace("seed", "")
@@ -565,6 +647,17 @@ def figure_service(run_dir: Path) -> None:
                 else:
                     ax.text(j, i, f"{v:.1f}", ha="center", va="center",
                             fontsize=6.0, color="white" if v > 5 else "#222")
+        ax.text(
+            0.02,
+            0.98,
+            "IR-CL\n(pp)",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=5.8,
+            color="#222",
+            bbox=dict(facecolor="white", edgecolor="white", alpha=1.0, pad=0.5),
+        )
         cbar = ax.figure.colorbar(im, ax=ax, fraction=0.05, pad=0.02)
         cbar.set_ticks([0, 5, 10])
         cbar.ax.tick_params(labelsize=5.5)
@@ -586,6 +679,23 @@ def figure_service(run_dir: Path) -> None:
         for proto, vals in ci_data.items():
             ax.plot(xs, vals, color=service_colors[proto], marker=MARKERS[proto],
                     markersize=4.0, linewidth=2.0, label=service_short_labels[proto])
+        if ci_data["conga_like"] and ci_data["information_routing"]:
+            ratio = ci_data["conga_like"][2] / max(ci_data["information_routing"][2], 1e-6)
+            ax.annotate(
+                f"CL widens\n>{ratio:.0f}x",
+                xy=(2, ci_data["conga_like"][2]),
+                xytext=(2.35, 0.32),
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color=service_colors["conga_like"],
+                    linewidth=0.7,
+                ),
+                color=service_colors["conga_like"],
+                fontsize=6.2,
+                ha="left",
+                va="center",
+                bbox=dict(facecolor="white", edgecolor="white", alpha=1.0, pad=0.7),
+            )
         ax.set_yscale("log")
         ax.set_xticks(xs)
         ax.set_xticklabels([r[2] for r in regimes], fontsize=6.8, rotation=0)
@@ -605,14 +715,14 @@ def figure_service(run_dir: Path) -> None:
         )
         style_inside_legend(leg)
 
-    render_panel("eval_v5_fig2a_delivery_regimes", draw_delivery_regimes)
+    render_panel("eval_service_delivery_regimes", draw_delivery_regimes)
     render_panel(
-        "eval_v5_fig2b_gap_heatmap",
+        "eval_service_gap_heatmap",
         draw_gap_heatmap,
         adjust=(0.25, 0.88, 0.27, 0.95),
     )
-    render_panel("eval_v5_fig2c_brittleness_signature", draw_brittleness_signature)
-    for obsolete in ("eval_v5_fig2_service.pdf", "eval_v5_fig2_service.png"):
+    render_panel("eval_service_brittleness_signature", draw_brittleness_signature)
+    for obsolete in ("eval_service_combined.pdf", "eval_service_combined.png"):
         path = OUT / obsolete
         if path.exists():
             path.unlink()
@@ -795,13 +905,13 @@ def figure_robustness(run_dir: Path) -> None:
         )
         style_inside_legend(leg)
 
-    render_panel("eval_v5_fig3a_robustness_envelope", draw_envelope)
+    render_panel("eval_operating_envelope", draw_envelope)
     render_panel(
-        "eval_v5_fig3b_operational_cost",
+        "eval_operational_cost",
         draw_cost,
         adjust=(0.30, 0.83, 0.31, 0.96),
     )
-    for obsolete in ("eval_v5_fig3_robustness.pdf", "eval_v5_fig3_robustness.png"):
+    for obsolete in ("eval_robustness_combined.pdf", "eval_robustness_combined.png"):
         path = OUT / obsolete
         if path.exists():
             path.unlink()
@@ -829,7 +939,7 @@ def figure_hardware_brittleness() -> None:
                 transform=ax.transAxes, ha="center", va="center",
                 fontsize=7, color="#666")
         ax.set_axis_off()
-        save(fig, "eval_v5_fig5_hardware_brittleness")
+        save(fig, "eval_containerlab_probe_recovery")
         return
 
     def as_float(row: dict[str, str], key: str) -> float:
@@ -867,7 +977,7 @@ def figure_hardware_brittleness() -> None:
                 transform=ax.transAxes, ha="center", va="center",
                 fontsize=7, color="#666")
         ax.set_axis_off()
-        save(fig, "eval_v5_fig5_hardware_brittleness")
+        save(fig, "eval_containerlab_probe_recovery")
         return
 
     preferred_faults = [
@@ -1083,7 +1193,7 @@ def figure_hardware_brittleness() -> None:
     )
 
     fig.subplots_adjust(left=0.31, right=0.985, bottom=0.19, top=0.82)
-    save(fig, "eval_v5_fig5_hardware_brittleness")
+    save(fig, "eval_containerlab_probe_recovery")
 
 
 # ---------------------------------------------------------------------------
@@ -1091,7 +1201,7 @@ def figure_hardware_brittleness() -> None:
 # ---------------------------------------------------------------------------
 def main() -> int:
     configure_style()
-    print(f"[info] reading v5 sweep from {RUN_DIR}")
+    print(f"[info] reading evaluation sweep from {RUN_DIR}")
     if not RUN_DIR.exists():
         print(f"[error] sweep dir missing: {RUN_DIR}", file=sys.stderr)
         return 1

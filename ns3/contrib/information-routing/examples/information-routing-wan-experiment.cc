@@ -306,8 +306,8 @@ struct ControlConfig
     double congestionTime{8.0};
     double congestionEndTime{-1.0};
     double congestionPenalty{1000.0};
-    // EVAL_REDESIGN.md E1: multi-event cascading impairment. When non-empty,
-    // supersedes the legacy single-link knobs above.
+    // Multi-event cascading impairment. When non-empty, supersedes the
+    // single-link knobs above.
     std::vector<CongestionEvent> congestionEvents;
     double refreshInterval{0.0};
     double refreshStopTime{0.0};
@@ -497,10 +497,10 @@ DampedMetric(double current, double target, double alpha)
     return ((1.0 - alpha) * current) + (alpha * target);
 }
 
-// EVAL_REDESIGN.md E1. Returns the set of (linkIndex, basePenalty) pairs that
-// are currently active at simulation time `now`. The legacy single-link knobs
-// are folded into a one-element vector when the new congestionEvents list is
-// empty, so every downstream call site can iterate uniformly.
+// Returns the set of (linkIndex, basePenalty) pairs that are currently active
+// at simulation time `now`. The single-link knobs are folded into a one-element
+// vector when the congestionEvents list is empty, so every downstream call site
+// can iterate uniformly.
 std::vector<std::pair<uint32_t, double>>
 ActiveCongestionsAt(double now, const ControlConfig& config)
 {
@@ -876,8 +876,8 @@ RefreshRouteMetrics(const NodeContainer& nodes,
         }
     }
 
-    // EVAL_REDESIGN.md E1: report the share of selected best routes that use
-    // *any* currently-degraded link, not just the legacy congestedLink.
+    // Report the share of selected best routes that use *any*
+    // currently-degraded link, not just congestedLink.
     std::vector<uint32_t> degradedLinkSet;
     degradedLinkSet.reserve(activeCongestions.size());
     for (const auto& active : activeCongestions)
@@ -1431,9 +1431,8 @@ main(int argc, char* argv[])
     double congestionTime = 8.0;
     double congestionEndTime = -1.0;
     double congestionPenalty = 1000.0;
-    // EVAL_REDESIGN.md E1: comma-separated list of `link:tOn:tOff:penalty`.
-    // tOff < 0 means never ends. Empty string falls back to the legacy
-    // single-link knobs above.
+    // Comma-separated list of `link:tOn:tOff:penalty`. tOff < 0 means never
+    // ends. Empty string falls back to the single-link knobs above.
     std::string congestionEventsSpec;
     double refreshInterval = 0.0;
     double refreshStartTime = -1.0;

@@ -79,30 +79,16 @@ python3 contrib/information-routing/utils/analyze_wan_sweep.py \
   --input-dir results/information-routing/<run-dir>
 ```
 
-The paper-facing experiment design is captured in the versioned
-`wan_sweep_eval_design_*.json` files.  The v3 files are organized by the current
-Evaluation section: `exp1_*` for admissibility/freshness/stability, `exp2_*` for
-degradation/burst/application functions, and `exp3_*` for scale and robustness.
-Use `--only-scenario` to run one slice before expanding to the full matrix.
+The paper-facing experiment design is captured in the current
+`wan_sweep_eval_*.json` files. They are organized by the Evaluation section:
+mechanism boundary, service gap, robustness, operational overhead, trace replay,
+and AI workloads. Use `--only-scenario` to run one slice before expanding to the
+full matrix.
 
-The v4 sweep tightens the weak spots found after the first full pass:
-
-- `wan_sweep_eval_design_v4_exp1_action_latency.json` offsets telemetry refresh
-  from the congestion event so first-control and first-action delay are
-  measurable rather than always landing exactly on the event timestamp.
-- `wan_sweep_eval_design_v4_exp2_burst_collision.json` adds a physical
-  bottleneck to the burst/incast stress tests, making the burst result measure
-  real collision relief instead of only route-score changes.
-- `wan_sweep_eval_design_v4_exp2_class_objective.json` compares static,
-  class-agnostic IR, and TOS-aware class-aware IR while exporting
-  priority/nonpriority selected-path shares.
-- `wan_sweep_eval_design_v4_la_ecmp_coverage.json` fills in LA-ECMP coverage for
-  degradation, burst, and noisy-telemetry cases.
-
-Run the improved matrix with:
+Run the matrix with:
 
 ```bash
-contrib/information-routing/utils/run_eval_v4_parallel.sh
+contrib/information-routing/utils/run_eval_parallel.sh
 ```
 
 Useful overrides are `SEEDS="1 2 3 4 5"`, `MAX_PARALLEL=12`,

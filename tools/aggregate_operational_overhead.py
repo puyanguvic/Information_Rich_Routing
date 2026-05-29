@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Aggregate v5_exp9 overhead sweep into §5.2 Tab 4 (Operational overhead).
+"""Aggregate the operational-overhead sweep into §5.2 Tab 4.
 
 Reads metrics.json files from the exp9 sweep, extracts the
 selector_profile_* fields (E7) plus control_metric_writes, and emits
 a LaTeX table fragment with mean ± 95% CI across N seeds per policy.
 
 Usage:
-  python3 tools/aggregate_exp9_overhead.py \\
-      --run-dir /path/to/eval-v5-exp9-overhead-... \\
+  python3 tools/aggregate_operational_overhead.py \\
+      --run-dir /path/to/eval-overhead-... \\
       --out-tex content/tables/tab4_overhead.tex
 """
 from __future__ import annotations
@@ -171,7 +171,7 @@ def main() -> None:
 
     by_policy = collect(args.run_dir)
     # Stdout summary for the human.
-    print(f"# v5_exp9 overhead aggregate ({args.run_dir})\n")
+    print(f"# operational-overhead aggregate ({args.run_dir})\n")
     print(f"{'policy':<22s} {'n':>3s} "
           f"{'p50_ns':>12s} {'p99_ns':>12s} "
           f"{'lookups/s':>12s} {'writes/s':>12s} {'cpu%':>10s}")

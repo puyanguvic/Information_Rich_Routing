@@ -77,7 +77,7 @@ def main():
     ax.axis("off")
 
     add_box(ax, 0.07, 0.50, 0.20, 0.30, "slow state\ntopology/policy", COLORS["gray"], COLORS["light_gray"], fontsize=5.6)
-    add_box(ax, 0.38, 0.50, 0.24, 0.30, "admissible set\n{v1, v2, ...}", COLORS["blue"], "#FFFFFF", bold=True)
+    add_box(ax, 0.38, 0.50, 0.24, 0.30, "admissible set\n{n1, n2, ...}", COLORS["blue"], "#FFFFFF", bold=True)
     add_box(ax, 0.76, 0.50, 0.20, 0.30, "installed\naction", COLORS["green"], "#FFFFFF")
     add_arrow(ax, (0.27, 0.65), (0.37, 0.65), COLORS["gray"])
     add_arrow(ax, (0.63, 0.65), (0.75, 0.65), COLORS["gray"])

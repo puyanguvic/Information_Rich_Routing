@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Generate the v5_exp9 overhead-microbench config.
+"""Generate the asymmetric-capacity sweep config.
 
-5 policies × 20 seeds = 100 runs on the same workload §5.1 uses
-(cascade T=1000ms, hotspot UDP). Each run carries --profileSelector=1
-so the binary emits selector_profile_p50_ns / p99_ns / mean_ns /
-lookups via metadata. The runs are launched under taskset per-core
-pinning by the matching shell launcher so per-lookup ns numbers are
-reproducible.
+Four asymmetry conditions on top of the cascading T=500ms workload
+(the regime that defeats folded discipline in §5.2):
+
+  A1 baseline       : just the existing bottleneck (link 0 @ 80Mbps)
+                      — control row, reproduces the T=500 cell.
+  A2 spine narrowed : links 0..5 (the 6-core ring) all capped at 60Mbps
+                      — homogeneous narrowed spine.
+  A3 chord narrowed : links 6..9 (4 chords) capped at 60Mbps; spine
+                      ring stays at 100Mbps default.
+  A4 mixed          : A2 ∪ A3 (entire backbone narrowed).
+
+4 scenarios × 5 protocols × 20 seeds = 400 runs.
 """
 from __future__ import annotations
 import json
@@ -27,7 +33,6 @@ COMMON = {
     "simStopTime": 17,
     "sampleInterval": 0.25,
     "startJitter": 0.25,
-    "profileSelector": 1,
 }
 
 PROTOCOLS = [
@@ -65,25 +70,46 @@ def cascading_events(links: list[int], t_start: float, t_end: float,
     return ",".join(events)
 
 
+def link_rate_map(spec_pairs: list[tuple[int, str]]) -> str:
+    return ",".join(f"{idx}:{rate}" for idx, rate in spec_pairs)
+
+
 def main() -> None:
     cascade_links = [0, 1, 2, 3, 4, 5]
-    events_1s = cascading_events(cascade_links, 5.0, 15.0, 1.0, 0.5, 1500)
-    scenario_args = {
+    events = cascading_events(cascade_links, 5.0, 15.0, 0.5, 0.5, 1500)
+
+    base = {
         "appMode": "udp-client", "transport": "udp", "packetSize": 1000,
         "traffic": "hotspot", "hotspotNode": 0, "flowCount": 72,
         "flowRate": "45Mbps", "bottleneckLink": 0, "bottleneckRate": "80Mbps",
         "refreshInterval": 0.025, "refreshStopTime": 15,
         "metricNoise": 0.25,
-        "congestionEvents": events_1s,
+        "congestionEvents": events,
     }
-    scenarios = [{"name": "exp9_overhead_cascading_T1000ms",
-                  "args": scenario_args}]
+
+    # Spine ring links 1..5 (link 0 is the bottleneck already).
+    spine_map = link_rate_map([(i, "60Mbps") for i in range(1, 6)])
+    # Chord links 6..9.
+    chord_map = link_rate_map([(i, "60Mbps") for i in range(6, 10)])
+    mixed_map = link_rate_map(
+        [(i, "60Mbps") for i in range(1, 10)]
+    )
+
+    scenarios = [
+        {"name": "exp3_asym_a1_baseline", "args": {**base}},
+        {"name": "exp3_asym_a2_spine_narrowed",
+         "args": {**base, "linkRateMap": spine_map}},
+        {"name": "exp3_asym_a3_chord_narrowed",
+         "args": {**base, "linkRateMap": chord_map}},
+        {"name": "exp3_asym_a4_mixed",
+         "args": {**base, "linkRateMap": mixed_map}},
+    ]
     config = {"common": COMMON, "seeds": SEEDS,
               "protocols": PROTOCOLS, "scenarios": scenarios}
-    out = Path(__file__).parent / "wan_sweep_eval_design_v5_exp9_overhead.json"
+    out = Path(__file__).parent / "wan_sweep_eval_asymmetric_capacity.json"
     out.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     print(f"[write] {out}")
-    print(f"  1 scenario x 5 protocols x 20 seeds = 100 runs")
+    print(f"  4 scenarios x 5 protocols x 20 seeds = 400 runs")
 
 
 if __name__ == "__main__":

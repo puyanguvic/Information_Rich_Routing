@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Run v5_exp9 overhead microbench (E7) with each worker pinned to a
-# dedicated CPU core so wall-clock per-lookup ns numbers are
-# reproducible.
+# Run the operational-overhead microbench with each worker pinned to a
+# dedicated CPU core so wall-clock per-lookup ns numbers are reproducible.
 #
 # Defaults: 20 workers on cores 0..19, 100 runs (5 policies x 20 seeds).
 # With ~5 min/run, expect ~25 minutes wall.
@@ -17,12 +16,12 @@ set -uo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NS3_ROOT="$(cd "$MODULE_DIR/../.." && pwd)"
-RUN_ID="${RUN_ID:-eval-v5-exp9-overhead-$(date +%Y%m%d-%H%M%S)}"
+RUN_ID="${RUN_ID:-eval-overhead-$(date +%Y%m%d-%H%M%S)}"
 OUT_ROOT="${OUT_ROOT:-$NS3_ROOT/results/information-routing/$RUN_ID}"
 PIN_CORES="${PIN_CORES:-0-19}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-1800}"
 SEEDS="${SEEDS:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}"
-CONFIG="$MODULE_DIR/utils/wan_sweep_eval_design_v5_exp9_overhead.json"
+CONFIG="$MODULE_DIR/utils/wan_sweep_eval_operational_overhead.json"
 
 # Expand PIN_CORES (e.g., "0-19") into an array of individual core ids.
 IFS=',-' read -ra _parts <<< "$PIN_CORES"
@@ -75,8 +74,8 @@ launch_seed() {
   local seed="$1"
   local core
   core=$(claim_slot)
-  local log="$OUT_ROOT/logs/exp9-seed${seed}-core${core}.log"
-  local status="$OUT_ROOT/status/exp9-seed${seed}.status"
+  local log="$OUT_ROOT/logs/overhead-seed${seed}-core${core}.log"
+  local status="$OUT_ROOT/status/overhead-seed${seed}.status"
   local out_dir="$OUT_ROOT/seed${seed}"
 
   {
@@ -110,4 +109,4 @@ while [ "$(running_jobs)" -gt 0 ]; do
   wait -n || true
 done
 
-echo "[done] exp9 overhead sweep complete: $OUT_ROOT"
+echo "[done] overhead sweep complete: $OUT_ROOT"

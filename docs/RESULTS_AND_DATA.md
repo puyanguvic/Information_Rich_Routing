@@ -27,5 +27,5 @@ Git. For externally stored ns-3 results, use:
 
 ```bash
 export IR_NS3_RESULTS=/path/to/results/information-routing
-export IR_NS3_RUN_DIR=/path/to/results/information-routing/eval-v5-...
+export IR_NS3_RUN_DIR=/path/to/results/information-routing/eval-...
 ```

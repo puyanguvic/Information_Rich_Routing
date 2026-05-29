@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Aggregate v5 sweep results from per-seed metrics.json files into headline
+"""Aggregate current sweep results from per-seed metrics.json files into headline
 tables for §5 of the paper. Computes mean ± 95% CI under Student's t over the
 20 seeds for each (batch, scenario, protocol) cell.
 
 Usage:
-    python3 v5_aggregate.py [--run-dir PATH] [--out-dir PATH]
-Default: reads the active sweep and writes ./tables/generated_v5/
+    python3 aggregate_evaluation.py [--run-dir PATH] [--out-dir PATH]
+Default: reads the active sweep and writes ./tables/generated/
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUN_DIR = Path(
     os.environ.get(
         "IR_NS3_RUN_DIR",
-        ROOT / "results" / "information-routing" / "eval-v5-20260521-1428",
+        ROOT / "results" / "information-routing" / "current",
     )
 )
-DEFAULT_OUT_DIR = Path(__file__).resolve().parent.parent / "tables" / "generated_v5"
+DEFAULT_OUT_DIR = Path(__file__).resolve().parent.parent / "tables" / "generated"
 
 # Critical t values for 95% CI, df = N-1.  N=20 -> df=19, t=2.093.
 T95 = {19: 2.093, 18: 2.101, 17: 2.110, 16: 2.120, 15: 2.131,

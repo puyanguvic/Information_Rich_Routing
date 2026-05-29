@@ -103,14 +103,14 @@ The paper sweep launcher is:
 ```bash
 cd ~/ns-3-dev-git
 CONFIGS="exp1 exp2 exp4 exp5 exp6 exp7 exp8 exp11" \
-  RUN_ID=eval-v5-main \
-  OUT_ROOT=~/ns-3-dev-git/results/information-routing/eval-v5-main \
+  RUN_ID=eval-main \
+  OUT_ROOT=~/ns-3-dev-git/results/information-routing/eval-main \
   MAX_PARALLEL=24 \
   TIMEOUT_SEC=1200 \
-  bash contrib/information-routing/utils/run_eval_v5_parallel.sh
+  bash contrib/information-routing/utils/run_eval_parallel.sh
 ```
 
 Supplementary batches can be launched by changing `CONFIGS`, for example
 `CONFIGS="exp3 exp9 exp10 exp12"`. The heatmap-fill config is stored as
-`wan_sweep_eval_design_v5b_heatmap_fill.json` and can be launched directly with
+`wan_sweep_eval_service_heatmap.json` and can be launched directly with
 `run_wan_sweep.py` if needed.

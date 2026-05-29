@@ -67,14 +67,14 @@ def draw_panel(ax, title, active_path):
     ax.axis("off")
 
     ax.text(0.03, 0.96, title, ha="left", va="top", fontsize=7.3, fontweight="bold", color=COLORS["dark"])
-    ax.text(0.50, 0.86, "slow routing: {v1, v2} admissible", ha="center", va="center", fontsize=6.1, color=COLORS["gray"])
+    ax.text(0.50, 0.86, "slow routing: {n1, n2} admissible", ha="center", va="center", fontsize=6.1, color=COLORS["gray"])
 
     u = (0.15, 0.46)
-    v1 = (0.50, 0.64)
-    v2 = (0.50, 0.29)
+    n1 = (0.50, 0.64)
+    n2 = (0.50, 0.29)
     d = (0.86, 0.46)
 
-    for start, end in [(u, v1), (v1, d), (u, v2), (v2, d)]:
+    for start, end in [(u, n1), (n1, d), (u, n2), (n2, d)]:
         add_arrow(ax, start, end, COLORS["light_gray"], lw=1.2, alpha=1.0, mutation_scale=7, style="-")
 
     if active_path == "bad":
@@ -97,7 +97,7 @@ def draw_panel(ax, title, active_path):
 
     draw_degradation(ax, 0.66, 0.61)
 
-    for point, label in [(u, "u"), (v1, "v1"), (v2, "v2"), (d, "d")]:
+    for point, label in [(u, "u"), (n1, "n1"), (n2, "n2"), (d, "d")]:
         add_node(ax, point, label)
 
 

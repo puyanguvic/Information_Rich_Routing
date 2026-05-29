@@ -93,7 +93,7 @@
   ],
   "scenarios": [
     {
-      "name": "v5b_T500ms_noise0pct",
+      "name": "heatmap_T500ms_noise0pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
@@ -111,7 +111,7 @@
       }
     },
     {
-      "name": "v5b_T500ms_noise50pct",
+      "name": "heatmap_T500ms_noise50pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
@@ -129,7 +129,7 @@
       }
     },
     {
-      "name": "v5b_T500ms_noise100pct",
+      "name": "heatmap_T500ms_noise100pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
@@ -147,7 +147,7 @@
       }
     },
     {
-      "name": "v5b_T2000ms_noise0pct",
+      "name": "heatmap_T2000ms_noise0pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
@@ -165,7 +165,7 @@
       }
     },
     {
-      "name": "v5b_T2000ms_noise50pct",
+      "name": "heatmap_T2000ms_noise50pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
@@ -183,7 +183,7 @@
       }
     },
     {
-      "name": "v5b_T2000ms_noise100pct",
+      "name": "heatmap_T2000ms_noise100pct",
       "args": {
         "appMode": "udp-client",
         "transport": "udp",
