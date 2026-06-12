@@ -1,0 +1,118 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "transport": "udp",
+    "packetSize": 1000,
+    "startTime": 1,
+    "stopTime": 16,
+    "simStopTime": 17,
+    "sampleInterval": 0.25,
+    "startJitter": 0.25
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "protocols": [
+    {
+      "name": "load_aware_ecmp",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 1.0,
+        "hysteresisThreshold": 0.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "conga_like",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.7,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 0.0,
+        "updateBudgetPerSec": 0.0
+      }
+    },
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0,
+        "dampingAlpha": 0.5,
+        "hysteresisThreshold": 2.0,
+        "dwellTimeMs": 50.0,
+        "updateBudgetPerSec": 200.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "rev3_steady_load",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "45Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    },
+    {
+      "name": "rev3_near_saturation",
+      "args": {
+        "appMode": "udp-client",
+        "transport": "udp",
+        "packetSize": 1000,
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "flowCount": 72,
+        "flowRate": "60Mbps",
+        "bottleneckLink": 0,
+        "bottleneckRate": "80Mbps",
+        "refreshInterval": 0.025,
+        "refreshStopTime": 15,
+        "metricNoise": 0.25
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/traffic-control-module.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,6 +25,10 @@ using namespace ns3;
 
 namespace
 {
+
+// Revision R3: per-link device containers for sensed-queue evidence. Set in
+// main() after topology build; nullptr disables sensing.
+const std::vector<NetDeviceContainer>* g_linkDevices = nullptr;
 
 bool
 PathUsesLink(const InformationTopology& topology,
@@ -306,8 +311,8 @@ struct ControlConfig
     double congestionTime{8.0};
     double congestionEndTime{-1.0};
     double congestionPenalty{1000.0};
-    // Multi-event cascading impairment. When non-empty, supersedes the
-    // single-link knobs above.
+    // EVAL_REDESIGN.md E1: multi-event cascading impairment. When non-empty,
+    // supersedes the legacy single-link knobs above.
     std::vector<CongestionEvent> congestionEvents;
     double refreshInterval{0.0};
     double refreshStopTime{0.0};
@@ -319,6 +324,32 @@ struct ControlConfig
     double updateBudgetPerSec{0.0};
     double metricNoise{0.0};
     uint8_t priorityTos{0xb8};
+    // Revision R4: metric-feedback counterfactual. When true, fast evidence is
+    // promoted into the slow route-cost field (reachability-like state) and is
+    // never decayed: a stale-state baseline that violates the IR invariant.
+    bool metricFeedback{false};
+    // Revision R4b: ARPANET-style decaying variant of metricFeedback. The
+    // polluted cost follows the damped/hysteresis-gated evidence value, so it
+    // decays back toward the base cost when the impairment moves on.
+    bool metricFeedbackDecay{false};
+    // Revision R3: sensed-queue evidence. When sensedQueueScale > 0, real
+    // device-queue occupancy (fraction of queue capacity) above the threshold
+    // is converted into evidence with penalty = occupancy * scale, so adaptive
+    // policies can react to congestion they themselves induce.
+    double sensedQueueScale{0.0};
+    double sensedQueueThreshold{0.3};
+    // Revision C1: adaptive write budget. When enabled, the per-second budget
+    // starts at updateBudgetPerSec and is steered each window by two shadow
+    // signals: budget pressure (proposals suppressed only by the budget) grows
+    // it, and best-route revert ratio (changes that flip straight back,
+    // i.e., harmful movement) shrinks it.
+    bool adaptiveBudget{false};
+    double budgetMin{25.0};
+    double budgetMax{1600.0};
+    // Links whose load is invariant to the policy's choice (shared by every
+    // candidate, e.g. the ingress bottleneck) are excluded from the
+    // controller's drop signal: their drops carry no decision information.
+    int32_t dropExcludeLink{-1};
 };
 
 struct RouteMetricState
@@ -329,6 +360,9 @@ struct RouteMetricState
     // EVAL_REDESIGN.md E3: dwell suppression. lastWriteTime is the simulation
     // time (seconds) of the last accepted metric write for this route.
     double lastWriteTime{-std::numeric_limits<double>::infinity()};
+    // Revision R4: last polluted slow cost installed by the metric-feedback
+    // baseline; <0 means the stable cost is still installed.
+    double pollutedCost{-1.0};
 };
 
 struct ControlCounters
@@ -340,6 +374,9 @@ struct ControlCounters
     uint64_t suppressedUpdates{0};
     uint64_t bestRouteChanges{0};
     uint64_t priorityBestRouteChanges{0};
+    // Revision R4: writes that change the slow route-cost field. Zero for
+    // every IR-contract policy; nonzero only for the metric-feedback baseline.
+    uint64_t slowCostWrites{0};
 };
 
 struct ControlState
@@ -352,6 +389,25 @@ struct ControlState
     // EVAL_REDESIGN.md E3: rolling 1-second window for the update-budget governor.
     double budgetWindowStart{-1.0};
     uint64_t budgetWindowWrites{0};
+    // Revision C1: adaptive-budget controller state.
+    double currentBudget{0.0};
+    uint64_t windowBudgetSuppressed{0};
+    uint64_t windowBestChanges{0};
+    uint64_t windowBestReverts{0};
+    std::map<std::pair<uint32_t, uint32_t>, int64_t> prevPrevBestByPair;
+    // Occupancy-trend signal: mean over the window of the per-refresh max
+    // link-queue occupancy. Growth that makes occupancy worse is reverted.
+    double windowOccSum{0.0};
+    uint64_t windowOccSamples{0};
+    double lastWindowOcc{-1.0};
+    int lastBudgetAction{0};   // +1 grew, -1 shrank, 0 held
+    int budgetCooldown{0};
+    // Drop-rate signal: per-window delta of cumulative device-queue drops.
+    uint64_t lastCumDrops{0};
+    uint64_t lastWindowDrops{0};
+    bool dropBaselineValid{false};
+    // Burn memory: growth never again exceeds half the level that hurt.
+    double burnedCeiling{0.0};
 };
 
 struct RouteShare
@@ -497,10 +553,10 @@ DampedMetric(double current, double target, double alpha)
     return ((1.0 - alpha) * current) + (alpha * target);
 }
 
-// Returns the set of (linkIndex, basePenalty) pairs that are currently active
-// at simulation time `now`. The single-link knobs are folded into a one-element
-// vector when the congestionEvents list is empty, so every downstream call site
-// can iterate uniformly.
+// EVAL_REDESIGN.md E1. Returns the set of (linkIndex, basePenalty) pairs that
+// are currently active at simulation time `now`. The legacy single-link knobs
+// are folded into a one-element vector when the new congestionEvents list is
+// empty, so every downstream call site can iterate uniformly.
 std::vector<std::pair<uint32_t, double>>
 ActiveCongestionsAt(double now, const ControlConfig& config)
 {
@@ -768,13 +824,173 @@ RefreshRouteMetrics(const NodeContainer& nodes,
     ++state->counters.refreshRounds;
     auto activeCongestions = ActiveCongestionsAt(now, config);
 
+    // Revision R3: merge sensed real-queue occupancy into the evidence set so
+    // adaptive policies react to self-induced congestion, not only injected
+    // signals. Occupancy is the max of the two directional device queues.
+    // Revision C1 reuses the same sampling as the adaptive-budget controller's
+    // service-facing signal.
+    if ((config.sensedQueueScale > 0.0 || config.adaptiveBudget) && g_linkDevices)
+    {
+        double maxOccThisRefresh = 0.0;
+        for (uint32_t li = 0; li < g_linkDevices->size(); ++li)
+        {
+            // Decision-invariant links are excluded from the controller's
+            // occupancy signal (matching the drop signal), but still feed
+            // sensed-queue evidence below.
+            bool excludedForController =
+                static_cast<int32_t>(li) == config.dropExcludeLink;
+            double occ = 0.0;
+            const auto& devs = (*g_linkDevices)[li];
+            for (uint32_t d = 0; d < devs.GetN(); ++d)
+            {
+                Ptr<PointToPointNetDevice> p2p =
+                    DynamicCast<PointToPointNetDevice>(devs.Get(d));
+                if (!p2p)
+                {
+                    continue;
+                }
+                Ptr<Queue<Packet>> queue = p2p->GetQueue();
+                if (!queue)
+                {
+                    continue;
+                }
+                uint32_t maxPkts = queue->GetMaxSize().GetValue();
+                if (maxPkts == 0)
+                {
+                    continue;
+                }
+                occ = std::max(occ,
+                               static_cast<double>(queue->GetNPackets()) /
+                                   static_cast<double>(maxPkts));
+            }
+            if (!excludedForController)
+            {
+                maxOccThisRefresh = std::max(maxOccThisRefresh, occ);
+            }
+            if (config.sensedQueueScale > 0.0 && occ >= config.sensedQueueThreshold)
+            {
+                activeCongestions.emplace_back(li, occ * config.sensedQueueScale);
+            }
+        }
+        if (config.adaptiveBudget)
+        {
+            state->windowOccSum += maxOccThisRefresh;
+            ++state->windowOccSamples;
+        }
+    }
+
     // EVAL_REDESIGN.md E3: roll the per-second update-budget window forward.
     if (config.updateBudgetPerSec > 0.0)
     {
+        if (state->currentBudget <= 0.0)
+        {
+            state->currentBudget = config.updateBudgetPerSec;
+        }
         if (state->budgetWindowStart < 0.0 || now - state->budgetWindowStart >= 1.0)
         {
+            // Revision C1: probe-and-back-off controller. Budget pressure
+            // (proposals blocked only by the budget) argues for growth; a
+            // worsening drop rate after a growth step reverts it and backs
+            // off for a few windows. Drops are the service-facing signal a
+            // router can observe locally without oracle knowledge.
+            if (config.adaptiveBudget && state->budgetWindowStart >= 0.0)
+            {
+                uint64_t admitted = state->budgetWindowWrites;
+                uint64_t blocked = state->windowBudgetSuppressed;
+                double pressure =
+                    (admitted + blocked) > 0
+                        ? static_cast<double>(blocked) / static_cast<double>(admitted + blocked)
+                        : 0.0;
+                uint64_t cumDrops = 0;
+                if (g_linkDevices)
+                {
+                    for (uint32_t li = 0; li < g_linkDevices->size(); ++li)
+                    {
+                        if (static_cast<int32_t>(li) == config.dropExcludeLink)
+                        {
+                            continue;
+                        }
+                        const auto& devs = (*g_linkDevices)[li];
+                        for (uint32_t d = 0; d < devs.GetN(); ++d)
+                        {
+                            Ptr<PointToPointNetDevice> p2p =
+                                DynamicCast<PointToPointNetDevice>(devs.Get(d));
+                            if (!p2p)
+                            {
+                                continue;
+                            }
+                            if (p2p->GetQueue())
+                            {
+                                cumDrops += p2p->GetQueue()->GetTotalDroppedPackets();
+                            }
+                            // Most drops land in the traffic-control qdisc,
+                            // which backpressures the device queue.
+                            Ptr<TrafficControlLayer> tcl =
+                                p2p->GetNode()->GetObject<TrafficControlLayer>();
+                            if (tcl)
+                            {
+                                Ptr<QueueDisc> qd = tcl->GetRootQueueDiscOnDevice(p2p);
+                                if (qd)
+                                {
+                                    cumDrops += qd->GetStats().nTotalDroppedPackets;
+                                }
+                            }
+                        }
+                    }
+                }
+                uint64_t windowDrops =
+                    cumDrops >= state->lastCumDrops ? cumDrops - state->lastCumDrops : 0;
+                state->lastCumDrops = cumDrops;
+                double meanOcc = state->windowOccSamples > 0
+                                     ? state->windowOccSum / state->windowOccSamples
+                                     : 0.0;
+                int action = 0;
+                uint64_t tolerance =
+                    std::max<uint64_t>(50, state->lastWindowDrops / 20);
+                if (state->burnedCeiling <= 0.0)
+                {
+                    state->burnedCeiling = config.budgetMax;
+                }
+                bool dropsWorse = windowDrops > state->lastWindowDrops + tolerance;
+                bool occWorse = state->lastWindowOcc >= 0.0 &&
+                                meanOcc > state->lastWindowOcc + 0.05;
+                if (state->lastBudgetAction > 0 && state->dropBaselineValid &&
+                    (dropsWorse || occWorse))
+                {
+                    // The grow step to currentBudget hurt: remember that the
+                    // last safe level was half of it, and never probe past it.
+                    state->burnedCeiling =
+                        std::max(config.budgetMin, state->currentBudget / 2.0);
+                    state->currentBudget =
+                        std::max(state->currentBudget / 4.0, config.budgetMin);
+                    state->budgetCooldown = 3;
+                    action = -1;
+                }
+                else if (state->budgetCooldown > 0)
+                {
+                    --state->budgetCooldown;
+                }
+                else if (pressure > 0.5 && state->currentBudget < state->burnedCeiling)
+                {
+                    state->currentBudget = std::min(
+                        std::min(state->currentBudget * 2.0, config.budgetMax),
+                        state->burnedCeiling);
+                    action = +1;
+                }
+                state->lastBudgetAction = action;
+                state->lastWindowDrops = windowDrops;
+                state->lastWindowOcc = meanOcc;
+                state->dropBaselineValid = true;
+                std::cout << "adaptive_budget," << now << "," << state->currentBudget << ","
+                          << pressure << "," << windowDrops << "," << meanOcc << "\n";
+            }
             state->budgetWindowStart = now;
             state->budgetWindowWrites = 0;
+            state->windowBudgetSuppressed = 0;
+            state->windowBestChanges = 0;
+            state->windowBestReverts = 0;
+            state->windowOccSum = 0.0;
+            state->windowOccSamples = 0;
         }
     }
     const double dwellSeconds = config.dwellTimeMs > 0.0 ? config.dwellTimeMs / 1000.0 : 0.0;
@@ -811,6 +1027,49 @@ RefreshRouteMetrics(const NodeContainer& nodes,
             }
         }
 
+        // Revision R4: metric-feedback counterfactual. Evidence is written
+        // into the slow route-cost field whenever it arrives, and the
+        // polluted cost is never restored when the impairment moves on:
+        // perishable observations become durable reachability-like state.
+        if (config.metricFeedback)
+        {
+            if (config.metricFeedbackDecay)
+            {
+                double nextQ =
+                    DampedMetric(metricState.queueMetric, targetQueue, config.dampingAlpha);
+                double delta = std::abs(nextQ - metricState.queueMetric);
+                if (delta >= config.hysteresisThreshold)
+                {
+                    double polluted = record.pathCost + nextQ;
+                    routing->SetRouteMetrics(record.routeIndex, polluted, 0.0, 0.0);
+                    ++state->counters.metricWrites;
+                    ++state->counters.slowCostWrites;
+                    ++state->counters.metricChanges;
+                    metricState.queueMetric = nextQ;
+                    metricState.lastWriteTime = now;
+                }
+                else
+                {
+                    ++state->counters.suppressedUpdates;
+                }
+                continue;
+            }
+            if (targetQueue > 0.0)
+            {
+                double polluted = record.pathCost + targetQueue;
+                routing->SetRouteMetrics(record.routeIndex, polluted, 0.0, 0.0);
+                ++state->counters.metricWrites;
+                ++state->counters.slowCostWrites;
+                if (std::abs(polluted - metricState.pollutedCost) > 0.0)
+                {
+                    ++state->counters.metricChanges;
+                }
+                metricState.pollutedCost = polluted;
+                metricState.lastWriteTime = now;
+            }
+            continue;
+        }
+
         double nextQueue = DampedMetric(metricState.queueMetric, targetQueue, config.dampingAlpha);
         double nextLoad = DampedMetric(metricState.loadMetric, targetLoad, config.dampingAlpha);
         double delta = std::max(std::abs(nextQueue - metricState.queueMetric),
@@ -830,13 +1089,13 @@ RefreshRouteMetrics(const NodeContainer& nodes,
             continue;
         }
 
-        // Global write-budget cap: at most updateBudgetPerSec writes per
-        // rolling 1-second window. When the cap is hit, suppress until the
-        // window advances.
+        // Global write-budget cap: at most currentBudget (== updateBudgetPerSec
+        // unless adaptiveBudget steers it) writes per rolling 1-second window.
         if (config.updateBudgetPerSec > 0.0 &&
-            state->budgetWindowWrites >= static_cast<uint64_t>(config.updateBudgetPerSec))
+            state->budgetWindowWrites >= static_cast<uint64_t>(state->currentBudget))
         {
             ++state->counters.suppressedUpdates;
+            ++state->windowBudgetSuppressed;
             continue;
         }
 
@@ -865,8 +1124,17 @@ RefreshRouteMetrics(const NodeContainer& nodes,
         if (it != previousBest.end() && it->second != entry.second)
         {
             ++state->counters.bestRouteChanges;
+            ++state->windowBestChanges;
+            // Revision C1: a change that flips straight back to the choice of
+            // two refreshes ago is harmful movement (thrash), not adaptation.
+            auto pp = state->prevPrevBestByPair.find(entry.first);
+            if (pp != state->prevPrevBestByPair.end() && pp->second == entry.second)
+            {
+                ++state->windowBestReverts;
+            }
         }
     }
+    state->prevPrevBestByPair = previousBest;
     for (const auto& entry : state->priorityBestRouteByPair)
     {
         auto it = previousPriorityBest.find(entry.first);
@@ -876,8 +1144,8 @@ RefreshRouteMetrics(const NodeContainer& nodes,
         }
     }
 
-    // Report the share of selected best routes that use *any*
-    // currently-degraded link, not just congestedLink.
+    // EVAL_REDESIGN.md E1: report the share of selected best routes that use
+    // *any* currently-degraded link, not just the legacy congestedLink.
     std::vector<uint32_t> degradedLinkSet;
     degradedLinkSet.reserve(activeCongestions.size());
     for (const auto& active : activeCongestions)
@@ -1431,8 +1699,9 @@ main(int argc, char* argv[])
     double congestionTime = 8.0;
     double congestionEndTime = -1.0;
     double congestionPenalty = 1000.0;
-    // Comma-separated list of `link:tOn:tOff:penalty`. tOff < 0 means never
-    // ends. Empty string falls back to the single-link knobs above.
+    // EVAL_REDESIGN.md E1: comma-separated list of `link:tOn:tOff:penalty`.
+    // tOff < 0 means never ends. Empty string falls back to the legacy
+    // single-link knobs above.
     std::string congestionEventsSpec;
     double refreshInterval = 0.0;
     double refreshStartTime = -1.0;
@@ -1445,6 +1714,13 @@ main(int argc, char* argv[])
     double updateBudgetPerSec = 0.0;
     bool profileSelector = false;
     double metricNoise = 0.0;
+    bool metricFeedback = false;
+    bool metricFeedbackDecay = false;
+    double sensedQueueScale = 0.0;
+    double sensedQueueThreshold = 0.3;
+    bool adaptiveBudget = false;
+    double budgetMin = 25.0;
+    double budgetMax = 1600.0;
     int32_t failedLink = -1;
     double failureTime = 15.0;
     double sampleInterval = 1.0;
@@ -1527,6 +1803,23 @@ main(int argc, char* argv[])
     cmd.AddValue("dampingAlpha", "EWMA alpha for dynamic information updates", dampingAlpha);
     cmd.AddValue("hysteresisThreshold", "Suppress metric writes below this absolute delta", hysteresisThreshold);
     cmd.AddValue("metricNoise", "Uniform fractional noise applied to congestion penalty", metricNoise);
+    cmd.AddValue("metricFeedback",
+                 "Counterfactual: promote evidence into the slow route cost without decay",
+                 metricFeedback);
+    cmd.AddValue("metricFeedbackDecay",
+                 "Decaying (ARPANET-style) variant of metricFeedback",
+                 metricFeedbackDecay);
+    cmd.AddValue("sensedQueueScale",
+                 "Penalty per unit queue occupancy from real device queues (0 disables)",
+                 sensedQueueScale);
+    cmd.AddValue("sensedQueueThreshold",
+                 "Queue occupancy fraction below which no sensed evidence is emitted",
+                 sensedQueueThreshold);
+    cmd.AddValue("adaptiveBudget",
+                 "Steer the write budget from budget-pressure and revert-ratio signals",
+                 adaptiveBudget);
+    cmd.AddValue("budgetMin", "Adaptive budget floor (writes/sec)", budgetMin);
+    cmd.AddValue("budgetMax", "Adaptive budget ceiling (writes/sec)", budgetMax);
     cmd.AddValue("failedLink", "Link index to fail using Ipv4::SetDown; -1 disables", failedLink);
     cmd.AddValue("failureTime", "Time to fail failedLink", failureTime);
     cmd.AddValue("sampleInterval", "Sink goodput sampling interval in seconds; 0 disables", sampleInterval);
@@ -1617,6 +1910,7 @@ main(int argc, char* argv[])
     stack.Install(nodes);
 
     InformationTopologyBuildResult build = topologyHelper.Install(topology, nodes);
+    g_linkDevices = &build.devices;
     InformationCandidateRouteSet routeSet = topologyHelper.InstallCandidateRouteSet(topology, build, kPaths);
     ApplyRouteMetrics(nodes, topology, routeSet, -1, 0.0);
 
@@ -1667,6 +1961,14 @@ main(int argc, char* argv[])
         controlConfig.dwellTimeMs = dwellTimeMs;
         controlConfig.updateBudgetPerSec = updateBudgetPerSec;
         controlConfig.metricNoise = metricNoise;
+        controlConfig.metricFeedback = metricFeedback;
+        controlConfig.metricFeedbackDecay = metricFeedbackDecay;
+        controlConfig.sensedQueueScale = sensedQueueScale;
+        controlConfig.sensedQueueThreshold = sensedQueueThreshold;
+        controlConfig.adaptiveBudget = adaptiveBudget;
+        controlConfig.budgetMin = budgetMin;
+        controlConfig.budgetMax = budgetMax;
+        controlConfig.dropExcludeLink = bottleneckLink;
         controlConfig.priorityTos = static_cast<uint8_t>(priorityTos);
 
         double earliestEventOn = std::numeric_limits<double>::infinity();
@@ -1853,6 +2155,8 @@ main(int argc, char* argv[])
     std::cout << "control_metric_writes," << controlState.counters.metricWrites << "\n";
     std::cout << "control_metric_changes," << controlState.counters.metricChanges << "\n";
     std::cout << "control_suppressed_updates," << controlState.counters.suppressedUpdates << "\n";
+    std::cout << "control_slow_cost_writes," << controlState.counters.slowCostWrites << "\n";
+    std::cout << "control_final_budget," << controlState.currentBudget << "\n";
     std::cout << "control_best_route_changes," << controlState.counters.bestRouteChanges << "\n";
     std::cout << "control_priority_best_route_changes,"
               << controlState.counters.priorityBestRouteChanges << "\n";
