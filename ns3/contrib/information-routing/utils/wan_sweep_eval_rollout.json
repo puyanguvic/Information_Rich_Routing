@@ -1,0 +1,240 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 6,
+    "metrosPerRegion": 2,
+    "edgesPerMetro": 2,
+    "kPaths": 4,
+    "appMode": "udp-client",
+    "transport": "udp",
+    "packetSize": 1000,
+    "traffic": "permutation",
+    "flowCount": 84,
+    "stride": 13,
+    "flowRate": "20Mbps",
+    "startTime": 1,
+    "stopTime": 20,
+    "simStopTime": 21,
+    "sampleInterval": 0.25,
+    "refreshInterval": 0.05,
+    "refreshStartTime": 1,
+    "refreshStopTime": 20,
+    "linkRateMap": "0:100Mbps,1:100Mbps,2:100Mbps",
+    "congestionEvents": "0:5:9:1500,1:9:13:1500,2:13:17:1500",
+    "dampingAlpha": 0.5,
+    "hysteresisThreshold": 2.0,
+    "dwellTimeMs": 50.0,
+    "updateBudgetPerSec": 200.0
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "protocols": [
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "coverage_base_c0",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:0"
+      }
+    },
+    {
+      "name": "coverage_random_c10",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:10"
+      }
+    },
+    {
+      "name": "coverage_random_c25",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:25"
+      }
+    },
+    {
+      "name": "coverage_random_c50",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:50"
+      }
+    },
+    {
+      "name": "coverage_random_c75",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:75"
+      }
+    },
+    {
+      "name": "coverage_random_c100",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:active:100"
+      }
+    },
+    {
+      "name": "coverage_edge_first_c10",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:active:10"
+      }
+    },
+    {
+      "name": "coverage_edge_first_c25",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:active:25"
+      }
+    },
+    {
+      "name": "coverage_edge_first_c50",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:active:50"
+      }
+    },
+    {
+      "name": "coverage_edge_first_c75",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:active:75"
+      }
+    },
+    {
+      "name": "coverage_edge_first_c100",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:active:100"
+      }
+    },
+    {
+      "name": "coverage_core_first_c10",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:active:10"
+      }
+    },
+    {
+      "name": "coverage_core_first_c25",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:active:25"
+      }
+    },
+    {
+      "name": "coverage_core_first_c50",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:active:50"
+      }
+    },
+    {
+      "name": "coverage_core_first_c75",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:active:75"
+      }
+    },
+    {
+      "name": "coverage_core_first_c100",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:active:100"
+      }
+    },
+    {
+      "name": "coverage_path_concentrated_c10",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:active:10"
+      }
+    },
+    {
+      "name": "coverage_path_concentrated_c25",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:active:25"
+      }
+    },
+    {
+      "name": "coverage_path_concentrated_c50",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:active:50"
+      }
+    },
+    {
+      "name": "coverage_path_concentrated_c75",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:active:75"
+      }
+    },
+    {
+      "name": "coverage_path_concentrated_c100",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:active:100"
+      }
+    },
+    {
+      "name": "transition_random_c25",
+      "args": {
+        "rolloutPlacement": "random",
+        "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
+      }
+    },
+    {
+      "name": "transition_edge_first_c25",
+      "args": {
+        "rolloutPlacement": "edge-first",
+        "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
+      }
+    },
+    {
+      "name": "transition_core_first_c25",
+      "args": {
+        "rolloutPlacement": "core-first",
+        "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
+      }
+    },
+    {
+      "name": "transition_path_concentrated_c25",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
+      }
+    }
+  ]
+}

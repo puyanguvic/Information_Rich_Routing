@@ -1,0 +1,53 @@
+{
+  "common": {
+    "topology": "tiered",
+    "regions": 2,
+    "metrosPerRegion": 1,
+    "edgesPerMetro": 1,
+    "kPaths": 2,
+    "appMode": "udp-client",
+    "transport": "udp",
+    "packetSize": 1000,
+    "traffic": "permutation",
+    "flowCount": 6,
+    "stride": 13,
+    "flowRate": "2Mbps",
+    "startTime": 0.5,
+    "stopTime": 7,
+    "simStopTime": 7.5,
+    "sampleInterval": 0,
+    "refreshInterval": 0.5,
+    "refreshStartTime": 0.5,
+    "refreshStopTime": 7,
+    "linkRateMap": "0:20Mbps",
+    "congestionEvents": "0:1.5:5.5:1000",
+    "dampingAlpha": 0.5,
+    "hysteresisThreshold": 2.0,
+    "dwellTimeMs": 50.0,
+    "updateBudgetPerSec": 200.0
+  },
+  "seeds": [
+    1
+  ],
+  "protocols": [
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "rollout_smoke",
+      "args": {
+        "rolloutPlacement": "path-concentrated",
+        "rolloutSchedule": "0:base:0,1:shadow:10,2:canary:10,4:active:50,6:rollback:0"
+      }
+    }
+  ]
+}

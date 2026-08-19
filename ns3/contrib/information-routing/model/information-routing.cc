@@ -172,6 +172,7 @@ InformationRoutingProtocol::AddNetworkRouteTo(Ipv4Address network,
     route.loadMetric = 0.0;
     route.selected = 0;
     route.selectedByTos.clear();
+    route.eligible = true;
     route.connected = nextHop == Ipv4Address::GetZero();
 
     m_routes.push_back(route);
@@ -216,6 +217,13 @@ InformationRoutingProtocol::SetRouteMetrics(uint32_t index,
     m_routes[index].delayMetric = delayMetric;
     m_routes[index].queueMetric = queueMetric;
     m_routes[index].loadMetric = loadMetric;
+}
+
+void
+InformationRoutingProtocol::SetRouteEligible(uint32_t index, bool eligible)
+{
+    NS_ABORT_MSG_IF(index >= m_routes.size(), "Route index out of range");
+    m_routes[index].eligible = eligible;
 }
 
 bool
@@ -460,7 +468,7 @@ InformationRoutingProtocol::PrintRoutingTable(Ptr<OutputStreamWrapper> stream,
         *os << "-";
     }
     *os << ", InformationRoutingProtocol table" << std::endl;
-    *os << "Destination     Mask            Gateway         Iface Cost Delay Queue Load Selected"
+    *os << "Destination     Mask            Gateway         Iface Cost Delay Queue Load Eligible Selected"
         << std::endl;
 
     for (const auto& route : m_routes)
@@ -468,7 +476,8 @@ InformationRoutingProtocol::PrintRoutingTable(Ptr<OutputStreamWrapper> stream,
         *os << std::left << std::setw(16) << route.network << std::setw(16) << route.mask
             << std::setw(16) << route.nextHop << std::setw(6) << route.interface << std::setw(5)
             << route.staticCost << std::setw(6) << route.delayMetric << std::setw(6)
-            << route.queueMetric << std::setw(5) << route.loadMetric << route.selected << std::endl;
+            << route.queueMetric << std::setw(5) << route.loadMetric << std::setw(9)
+            << route.eligible << route.selected << std::endl;
     }
 }
 
@@ -637,6 +646,10 @@ InformationRoutingProtocol::IsRouteMatch(const InformationRoute& route,
                                          Ptr<NetDevice> oif,
                                          uint32_t* prefixLength) const
 {
+    if (!route.eligible)
+    {
+        return false;
+    }
     if (oif && m_ipv4 && m_ipv4->GetNetDevice(route.interface) != oif)
     {
         return false;

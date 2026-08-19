@@ -13,13 +13,12 @@ import csv
 import datetime as dt
 import json
 import math
-from pathlib import Path
 import shlex
 import statistics
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
-
 
 EXAMPLE_NAME = "information-routing-wan-experiment"
 
@@ -84,6 +83,7 @@ def parse_stdout(stdout: str) -> tuple[
     list[dict[str, str]],
     list[dict[str, str]],
     list[dict[str, str]],
+    list[dict[str, str]],
     dict[str, Any],
 ]:
     metadata: dict[str, Any] = {}
@@ -91,11 +91,13 @@ def parse_stdout(stdout: str) -> tuple[
     timeseries: list[dict[str, str]] = []
     control_timeseries: list[dict[str, str]] = []
     selection_timeseries: list[dict[str, str]] = []
+    rollout_timeseries: list[dict[str, str]] = []
     class_summary: list[dict[str, str]] = []
     flow_header: list[str] | None = None
     timeseries_header: list[str] | None = None
     control_timeseries_header: list[str] | None = None
     selection_timeseries_header: list[str] | None = None
+    rollout_timeseries_header: list[str] | None = None
     class_summary_header: list[str] | None = None
     summary_header: list[str] | None = None
     summary: dict[str, Any] = {}
@@ -117,6 +119,9 @@ def parse_stdout(stdout: str) -> tuple[
             continue
         if columns[0] == "selection_timeseries" and len(columns) > 1 and columns[1] == "time_s":
             selection_timeseries_header = columns
+            continue
+        if columns[0] == "rollout_timeseries" and len(columns) > 1 and columns[1] == "time_s":
+            rollout_timeseries_header = columns
             continue
         if columns[0] == "class_summary" and len(columns) > 1 and columns[1] == "traffic_class":
             class_summary_header = columns
@@ -144,6 +149,10 @@ def parse_stdout(stdout: str) -> tuple[
                 and columns[0] == "selection_timeseries"):
             selection_timeseries.append(dict(zip(selection_timeseries_header, columns)))
             continue
+        if (rollout_timeseries_header and len(columns) == len(rollout_timeseries_header)
+                and columns[0] == "rollout_timeseries"):
+            rollout_timeseries.append(dict(zip(rollout_timeseries_header, columns)))
+            continue
         if (class_summary_header and len(columns) == len(class_summary_header)
                 and columns[0] == "class_summary"):
             class_summary.append(dict(zip(class_summary_header, columns)))
@@ -161,7 +170,16 @@ def parse_stdout(stdout: str) -> tuple[
                 continue
             summary[f"{prefix}{key}"] = parse_scalar(value)
 
-    return metadata, flows, timeseries, control_timeseries, selection_timeseries, class_summary, summary
+    return (
+        metadata,
+        flows,
+        timeseries,
+        control_timeseries,
+        selection_timeseries,
+        rollout_timeseries,
+        class_summary,
+        summary,
+    )
 
 
 def parse_scalar(value: str) -> Any:
@@ -208,8 +226,17 @@ def timeout_output(value: str | bytes | None) -> str:
     return value
 
 
-def run_command(ns3_root: Path, command: str, timeout_sec: float = 0) -> subprocess.CompletedProcess[str]:
-    args = ["./ns3", "run", "--no-build", command]
+def run_command(
+    ns3_root: Path,
+    command: str,
+    timeout_sec: float = 0,
+    example_binary: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if example_binary:
+        example_args = shlex.split(command)
+        args = [str(example_binary), *example_args[1:]]
+    else:
+        args = ["./ns3", "run", "--no-build", command]
     timeout = timeout_sec if timeout_sec > 0 else None
     try:
         return subprocess.run(
@@ -289,6 +316,23 @@ def write_group_summary(path: Path, rows: list[dict[str, Any]]) -> None:
         "control_suppressed_updates",
         "control_best_route_changes",
         "control_priority_best_route_changes",
+        "candidate_routes",
+        "route_objects_total",
+        "route_objects_max_per_router",
+        "route_state_bytes_lower_bound",
+        "selector_profile_lookups",
+        "selector_profile_p50_ns",
+        "selector_profile_p99_ns",
+        "selector_profile_mean_ns",
+        "rollout_shadow_proposals",
+        "rollout_excluded_nonprogress_candidates",
+        "rollout_rollback_failures",
+        "rollout_rollback_restoration_ms",
+        "rollout_max_compatibility_loops",
+        "rollout_max_compatibility_blackholes",
+        "rollout_max_invalid_actions",
+        "rollout_max_progress_violations",
+        "rollout_max_inactive_base_mismatches",
         "latency_rx_mbps",
         "latency_delivery_ratio",
         "latency_p99_delay_ms",
@@ -342,6 +386,12 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True, help="JSON sweep config")
     parser.add_argument("--output-dir", type=Path, default=None, help="directory for run artifacts")
     parser.add_argument("--ns3-root", type=Path, default=None, help="ns-3 repository root")
+    parser.add_argument(
+        "--example-binary",
+        type=Path,
+        default=None,
+        help="run a prebuilt example binary directly (useful for isolated smoke tests)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print commands without running")
     parser.add_argument("--no-build", action="store_true",
                         help="skip the initial example build; per-run invocations always use './ns3 run --no-build'")
@@ -378,7 +428,11 @@ def main() -> int:
     selected_protocols = set(args.only_protocol) if args.only_protocol else None
     selected_seeds = set(str(seed) for seed in args.only_seed) if args.only_seed else None
 
-    if not args.no_build and not args.dry_run:
+    example_binary = args.example_binary.resolve() if args.example_binary else None
+    if example_binary and not example_binary.exists():
+        raise FileNotFoundError(f"example binary does not exist: {example_binary}")
+
+    if not args.no_build and not args.dry_run and not example_binary:
         build = subprocess.run(
             ["./ns3", "build", "information-routing-wan-experiment"],
             cwd=ns3_root,
@@ -421,6 +475,10 @@ def main() -> int:
                 )
                 run_args = resolve_file_args(run_args, config_path)
                 command = build_example_command(run_args, int(seed))
+                if example_binary:
+                    execution = shlex.join([str(example_binary), *shlex.split(command)[1:]])
+                else:
+                    execution = f"./ns3 run --no-build {shlex.quote(command)}"
                 run_dir.mkdir(parents=True, exist_ok=True)
                 write_json(
                     run_dir / "run_config.json",
@@ -430,17 +488,17 @@ def main() -> int:
                         "seed": seed,
                         "args": run_args,
                         "command": command,
+                        "execution": execution,
                     },
                 )
-                (run_dir / "command.txt").write_text(f"./ns3 run --no-build {shlex.quote(command)}\n",
-                                                     encoding="utf-8")
+                (run_dir / "command.txt").write_text(f"{execution}\n", encoding="utf-8")
 
                 print(f"[run] scenario={scenario['name']} protocol={protocol['name']} seed={seed}")
-                print(f"      ./ns3 run --no-build {shlex.quote(command)}")
+                print(f"      {execution}")
                 if args.dry_run:
                     continue
 
-                completed = run_command(ns3_root, command, args.timeout_sec)
+                completed = run_command(ns3_root, command, args.timeout_sec, example_binary)
                 (run_dir / "stdout.txt").write_text(completed.stdout, encoding="utf-8")
                 (run_dir / "stderr.txt").write_text(completed.stderr, encoding="utf-8")
 
@@ -450,6 +508,7 @@ def main() -> int:
                     timeseries_rows,
                     control_timeseries_rows,
                     selection_timeseries_rows,
+                    rollout_timeseries_rows,
                     class_summary_rows,
                     summary,
                 ) = parse_stdout(completed.stdout)
@@ -457,6 +516,7 @@ def main() -> int:
                 write_rows_csv(run_dir / "timeseries.csv", timeseries_rows)
                 write_rows_csv(run_dir / "control_timeseries.csv", control_timeseries_rows)
                 write_rows_csv(run_dir / "selection_timeseries.csv", selection_timeseries_rows)
+                write_rows_csv(run_dir / "rollout_timeseries.csv", rollout_timeseries_rows)
                 write_rows_csv(run_dir / "class_summary.csv", class_summary_rows)
                 metrics = {
                     "scenario": scenario["name"],
@@ -473,10 +533,12 @@ def main() -> int:
                         "timeseries": str(run_dir / "timeseries.csv"),
                         "control_timeseries": str(run_dir / "control_timeseries.csv"),
                         "selection_timeseries": str(run_dir / "selection_timeseries.csv"),
+                        "rollout_timeseries": str(run_dir / "rollout_timeseries.csv"),
                         "class_summary": str(run_dir / "class_summary.csv"),
                         "flowmon": str(run_dir / "flowmon.xml"),
                     },
                     "command": command,
+                    "execution": execution,
                 }
                 write_json(run_dir / "metrics.json", metrics)
                 rows.append(row_from_metrics(metrics))

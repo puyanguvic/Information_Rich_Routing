@@ -4,7 +4,7 @@
 set -uo pipefail
 
 UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NS3_ROOT="${NS3_ROOT:-/home/cnlab-pu/Projects/ns-3-dev-git}"
+NS3_ROOT="${NS3_ROOT:-$(cd "$UTILS_DIR/../../.." && pwd)}"
 RUN_ID="${RUN_ID:-rev-$(date +%Y%m%d-%H%M%S)}"
 OUT_ROOT="${OUT_ROOT:-$NS3_ROOT/results/information-routing/$RUN_ID}"
 MAX_PARALLEL="${MAX_PARALLEL:-20}"

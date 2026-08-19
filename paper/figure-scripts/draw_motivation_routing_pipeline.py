@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw a compact Motivation figure for stable routing stages."""
+"""Draw the three information roles used by Information-Rich Routing."""
 
 from pathlib import Path
 
@@ -11,85 +11,80 @@ OUT_DIR = Path(__file__).resolve().parent
 PDF_OUT = OUT_DIR / "motivation_routing_pipeline.pdf"
 PNG_OUT = OUT_DIR / "motivation_routing_pipeline.png"
 
-COLORS = {
-    "blue": "#0072B2",
-    "green": "#009E73",
-    "orange": "#D55E00",
-    "gray": "#6F7782",
-    "light_gray": "#EEF1F4",
-    "dark": "#1F2933",
-    "red": "#B00020",
-}
+BLUE = "#1769AA"
+GREEN = "#16884A"
+ORANGE = "#C95D12"
+PURPLE = "#5C448B"
+GRAY = "#53606D"
+DARK = "#17212B"
 
 
-def add_box(ax, x, y, w, h, text, edge, face="#FFFFFF", fontsize=6.0, bold=False):
-    patch = FancyBboxPatch(
-        (x, y),
-        w,
-        h,
-        boxstyle="round,pad=0.012,rounding_size=0.018",
-        linewidth=0.9,
-        edgecolor=edge,
-        facecolor=face,
-    )
-    ax.add_patch(patch)
-    ax.text(
-        x + w / 2,
-        y + h / 2,
-        text,
-        ha="center",
-        va="center",
-        fontsize=fontsize,
-        fontweight="bold" if bold else "normal",
-        color=COLORS["dark"],
-        linespacing=1.05,
-    )
+def role_box(ax, x, y, w, h, title, detail, *, edge, face):
+    ax.add_patch(FancyBboxPatch(
+        (x, y), w, h,
+        boxstyle="round,pad=0.010,rounding_size=0.018",
+        linewidth=0.9, edgecolor=edge, facecolor=face, zorder=2,
+    ))
+    ax.text(x + w / 2, y + h * 0.69, title,
+            ha="center", va="center", fontsize=5.25,
+            fontweight="bold", color=edge, linespacing=0.92, zorder=3)
+    ax.text(x + w / 2, y + h * 0.20, detail,
+            ha="center", va="center", fontsize=4.85,
+            fontweight="semibold", color=DARK, zorder=3)
 
 
-def add_arrow(ax, start, end, color=COLORS["gray"], lw=1.1, style="-|>", alpha=1.0):
-    ax.add_patch(
-        FancyArrowPatch(
-            start,
-            end,
-            arrowstyle=style,
-            linewidth=lw,
-            color=color,
-            mutation_scale=8,
-            shrinkA=3,
-            shrinkB=3,
-            alpha=alpha,
-        )
-    )
+def arrow(ax, start, end, *, color, label=None, label_xy=None):
+    ax.add_patch(FancyArrowPatch(
+        start, end, arrowstyle="-|>", linewidth=0.9, color=color,
+        mutation_scale=7, shrinkA=2, shrinkB=2, zorder=1,
+    ))
+    if label and label_xy:
+        ax.text(*label_xy, label, ha="center", va="center",
+                fontsize=5.0, fontweight="bold", color=color,
+                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2},
+                zorder=4)
 
 
 def main():
-    plt.rcParams.update(
-        {
-            "font.family": "DejaVu Sans",
-            "font.size": 7,
-            "pdf.fonttype": 42,
-            "ps.fonttype": 42,
-        }
-    )
-    fig, ax = plt.subplots(figsize=(3.33, 1.10))
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans",
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    })
+    fig, ax = plt.subplots(figsize=(3.35, 1.42))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    add_box(ax, 0.07, 0.50, 0.20, 0.30, "slow state\ntopology/policy", COLORS["gray"], COLORS["light_gray"], fontsize=5.6)
-    add_box(ax, 0.38, 0.50, 0.24, 0.30, "admissible set\n{n1, n2, ...}", COLORS["blue"], "#FFFFFF", bold=True)
-    add_box(ax, 0.76, 0.50, 0.20, 0.30, "installed\naction", COLORS["green"], "#FFFFFF")
-    add_arrow(ax, (0.27, 0.65), (0.37, 0.65), COLORS["gray"])
-    add_arrow(ax, (0.63, 0.65), (0.75, 0.65), COLORS["gray"])
+    role_box(ax, 0.02, 0.64, 0.29, 0.32,
+             "ROUTE\nINFORMATION", "reachability · policy",
+             edge=BLUE, face="#EAF3FB")
+    role_box(ax, 0.355, 0.64, 0.29, 0.32,
+             "TRAFFIC\nINFORMATION", "queue · delay · loss",
+             edge=GREEN, face="#E9F6EE")
+    role_box(ax, 0.69, 0.64, 0.29, 0.32,
+             "SERVICE\nINTENT", "latency · delivery",
+             edge=ORANGE, face="#FCEFE5")
 
-    add_box(ax, 0.06, 0.12, 0.28, 0.22, "fast traffic state\nqueue/delay/class", COLORS["orange"], "#FFFFFF", fontsize=5.5)
-    ax.text(0.50, 0.23, "not a route event", ha="center", va="center", fontsize=6.0, color=COLORS["orange"])
-    add_arrow(ax, (0.33, 0.23), (0.42, 0.49), COLORS["orange"], lw=1.0, style="-|>", alpha=0.85)
-    add_arrow(ax, (0.58, 0.49), (0.73, 0.31), COLORS["green"], lw=1.1, style="-|>", alpha=0.9)
-    ax.text(0.74, 0.23, "bounded\npreference", ha="center", va="center", fontsize=5.8, color=COLORS["green"], linespacing=1.0)
+    role_box(ax, 0.12, 0.13, 0.64, 0.29,
+             r"SELECTION POLICY  $F(C,Z,\phi)$",
+             "rank · suppress · split · fallback",
+             edge=PURPLE, face="#F0ECF7")
+    role_box(ax, 0.81, 0.13, 0.17, 0.29,
+             "ACTIVE\n" r"VIEW $a$", "next hop",
+             edge=GRAY, face="#F1F3F5")
 
-    fig.savefig(PDF_OUT, bbox_inches="tight", pad_inches=0.015)
-    fig.savefig(PNG_OUT, dpi=300, bbox_inches="tight", pad_inches=0.015)
+    arrow(ax, (0.165, 0.64), (0.255, 0.42), color=BLUE,
+          label=r"$C$", label_xy=(0.205, 0.54))
+    arrow(ax, (0.500, 0.64), (0.440, 0.42), color=GREEN,
+          label=r"$Z$", label_xy=(0.475, 0.54))
+    arrow(ax, (0.835, 0.64), (0.625, 0.42), color=ORANGE,
+          label=r"$\phi$", label_xy=(0.725, 0.54))
+    arrow(ax, (0.76, 0.275), (0.81, 0.275), color=PURPLE)
+
+    fig.savefig(PDF_OUT, bbox_inches="tight", pad_inches=0.012)
+    fig.savefig(PNG_OUT, dpi=300, bbox_inches="tight", pad_inches=0.012)
+    plt.close(fig)
 
 
 if __name__ == "__main__":

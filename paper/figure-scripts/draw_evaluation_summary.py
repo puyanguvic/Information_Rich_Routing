@@ -469,7 +469,7 @@ def figure_mechanism(run_dir: Path) -> None:
         style_inside_legend(leg)
 
     render_panel("eval_mechanism_writes_scope", draw_writes_scope)
-    render_panel("eval_mechanism_governor_effect", draw_knob_contribution)
+    render_panel("eval_mechanism_update_policy", draw_knob_contribution)
     render_panel("eval_mechanism_write_timeline", draw_write_timeline)
     render_panel("eval_mechanism_movement_scope", draw_movement_scope)
     for obsolete in ("eval_mechanism_combined.pdf", "eval_mechanism_combined.png"):

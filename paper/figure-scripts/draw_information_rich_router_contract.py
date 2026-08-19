@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the IR system model: route-state / traffic-state separation.
-
-The figure shows two parallel input streams (slow route state, fast traffic
-observations) producing two distinct objects (admissible next-hop set and
-typed evidence). A barred arrow between them makes the IR invariant
-visually dominant: evidence cannot widen the admissible set. The two
-objects converge at the local preference selector, are filtered by the
-update discipline (governor), and only admitted proposals reach the active
-forwarding view.
-"""
+"""Draw the IR programming model, adapted from defense slide 6."""
 
 from pathlib import Path
 
@@ -20,163 +11,121 @@ OUT_DIR = Path(__file__).resolve().parent
 PDF_OUT = OUT_DIR / "information_rich_router_contract.pdf"
 PNG_OUT = OUT_DIR / "information_rich_router_contract.png"
 
-# Palette (consistent with other generated figures in the paper)
-BLUE = "#1F6FB3"
-GREEN = "#1E8F4F"
-ORANGE = "#C0641A"
-PURPLE = "#5D478B"
-GRAY = "#4F5965"
-DARK = "#15202B"
-RED = "#B62A2A"
-PALE_BLUE = "#E6F0FA"
-PALE_GREEN = "#E2F2E8"
-PALE_ORANGE = "#FCEBD8"
-PALE_PURPLE = "#EEE7F4"
-PALE_GRAY = "#EEF1F4"
+BLUE = "#1769AA"
+GREEN = "#16884A"
+RED = "#CF3B3E"
+GOLD = "#A56B00"
+PURPLE = "#5C448B"
+NAVY = "#12355B"
+GRAY = "#53606D"
+DARK = "#17212B"
+PALE_BLUE = "#EAF3FB"
+PALE_GREEN = "#E9F6EE"
+PALE_RED = "#FCEDEE"
+PALE_GOLD = "#FBF4E5"
+PALE_PURPLE = "#F0ECF7"
+PALE_GRAY = "#F1F3F5"
 
 
-def box(ax, x, y, w, h, text, *, fc, ec, fs=10, weight="normal", zorder=2):
-    """Rounded-rectangle box with centered text."""
-    bb = FancyBboxPatch(
+def box(ax, x, y, w, h, title, detail, *, fc, ec, title_color=None,
+        title_fs=6.0, detail_fs=5.6, lw=1.05):
+    patch = FancyBboxPatch(
         (x, y), w, h,
-        boxstyle="round,pad=0.04,rounding_size=0.10",
-        facecolor=fc, edgecolor=ec, linewidth=1.3, zorder=zorder,
+        boxstyle="round,pad=0.028,rounding_size=0.07",
+        facecolor=fc,
+        edgecolor=ec,
+        linewidth=lw,
+        zorder=2,
     )
-    ax.add_patch(bb)
+    ax.add_patch(patch)
     ax.text(
-        x + w / 2, y + h / 2, text,
-        ha="center", va="center",
-        fontsize=fs, fontweight=weight, color=DARK,
-        linespacing=1.20, zorder=zorder + 1,
+        x + w / 2, y + h * 0.66, title,
+        ha="center", va="center", fontsize=title_fs,
+        fontweight="bold", color=title_color or ec, zorder=3,
+    )
+    ax.text(
+        x + w / 2, y + h * 0.31, detail,
+        ha="center", va="center", fontsize=detail_fs,
+        fontweight="semibold", color=DARK, linespacing=1.05, zorder=3,
     )
 
 
-def arrow(ax, x1, y1, x2, y2, *, color=DARK, label=None, lx=None, ly=None,
-          lw=1.6, ls="-", rad=0.0, fs=9):
-    """Directed arrow with optional bold label."""
-    a = FancyArrowPatch(
-        (x1, y1), (x2, y2),
-        arrowstyle="-|>", mutation_scale=16,
-        linewidth=lw, linestyle=ls, color=color,
-        connectionstyle=f"arc3,rad={rad}", zorder=4,
-    )
-    ax.add_patch(a)
-    if label and lx is not None and ly is not None:
-        ax.text(
-            lx, ly, label,
-            ha="center", va="center",
-            fontsize=fs, color=color, fontweight="bold", zorder=5,
+def arrow(ax, start, end, *, color=NAVY, lw=1.15, style="-"):
+    ax.add_patch(
+        FancyArrowPatch(
+            start, end, arrowstyle="-|>", mutation_scale=10,
+            linewidth=lw, linestyle=style, color=color, zorder=4,
         )
-
-
-def barred_arrow(ax, x1, y1, x2, y2, *, color=RED, lw=2.0):
-    """Forbidden-direction arrow: dashed line with a big red X marker mid-line."""
-    a = FancyArrowPatch(
-        (x1, y1), (x2, y2),
-        arrowstyle="-|>", mutation_scale=18,
-        linewidth=lw, linestyle=(0, (5, 3)),
-        color=color, zorder=5,
     )
-    ax.add_patch(a)
-    mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-    d = 0.28
-    ax.plot([mx - d, mx + d], [my - d, my + d], color=color, linewidth=3.4, zorder=7)
-    ax.plot([mx - d, mx + d], [my + d, my - d], color=color, linewidth=3.4, zorder=7)
 
 
 def main():
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
-        "font.size": 10,
+        "font.size": 7,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
     })
 
-    fig, ax = plt.subplots(figsize=(9.0, 5.4))
+    fig, ax = plt.subplots(figsize=(7.05, 3.30))
     ax.set_xlim(0, 14)
-    ax.set_ylim(0, 10)
+    ax.set_ylim(0, 6.5)
     ax.axis("off")
 
-    # ----- Stream headers -----
-    ax.text(2.9, 9.55, "Slow route state",
-            ha="center", va="center",
-            fontsize=11, fontweight="bold", color=BLUE)
-    ax.text(11.1, 9.55, "Fast traffic observations",
-            ha="center", va="center",
-            fontsize=11, fontweight="bold", color=GREEN)
-    ax.text(2.9, 9.05, "topology, neighbors, metric, policy",
-            ha="center", va="center",
-            fontsize=8.5, style="italic", color=GRAY)
-    ax.text(11.1, 9.05, "queue, delay, loss, degradation, class",
-            ha="center", va="center",
-            fontsize=8.5, style="italic", color=GRAY)
+    xs = (0.35, 3.55, 6.75)
+    w = 2.80
 
-    # ----- IR invariant banner (above the two top boxes) -----
-    ax.text(7.00, 8.30,
-            "evidence cannot widen the admissible set",
-            ha="center", va="center",
-            fontsize=10, fontweight="bold", color=RED, zorder=8)
+    box(ax, xs[0], 5.10, w, 0.93,
+        r"ROUTE INFORMATION $S$", "topology · policy · cost",
+        fc=PALE_BLUE, ec=BLUE)
+    box(ax, xs[1], 5.10, w, 0.93,
+        "TRAFFIC INFORMATION", "queue · delay · loss",
+        fc=PALE_GREEN, ec=GREEN)
+    box(ax, xs[2], 5.10, w, 0.93,
+        r"SERVICE INTENT $\phi$", "class · deadline · priority",
+        fc=PALE_RED, ec=RED)
 
-    # ----- Top boxes (the two routing objects) -----
-    box(ax, 0.8, 6.20, 4.2, 1.50,
-        "Admissible next-hop set\n$C_u(d;\\sigma)$\n(route-state object)",
-        fc=PALE_BLUE, ec=BLUE, fs=10.5, weight="bold")
-    box(ax, 9.0, 6.20, 4.2, 1.50,
-        "Typed traffic evidence\n$Z_{u,t}$\n(scoped, perishable)",
-        fc=PALE_GREEN, ec=GREEN, fs=10.5, weight="bold")
+    box(ax, xs[0], 3.66, w, 0.92,
+        r"PATH PROGRAM $P$", "shortest · ECMP · top-$K$\n" r"candidates $C$",
+        fc="white", ec=BLUE, detail_fs=5.2)
+    box(ax, xs[1], 3.66, w, 0.92,
+        r"INFORMATION PROGRAM $E$", "sample · aggregate · predict\n" r"evidence $Z$",
+        fc="white", ec=GREEN, detail_fs=5.2)
+    box(ax, xs[2], 3.66, w, 0.92,
+        r"INTENT PROFILE $M$", "match · objective · granularity\n" r"context $f,\phi$",
+        fc="white", ec=RED, detail_fs=5.2)
 
-    # ----- Input arrows into top boxes -----
-    arrow(ax, 2.9, 8.80, 2.9, 7.75, color=BLUE, lw=1.7)
-    arrow(ax, 11.1, 8.80, 11.1, 7.75, color=GREEN, lw=1.7)
+    box(ax, 0.35, 2.05, 9.20, 1.00,
+        r"SELECTION PROGRAM  $F(f,C,Z,\phi) \rightarrow a$",
+        r"rank · suppress · split · probe · fallback     $\mathsf{NH}(a)\subseteq C$",
+        fc=PALE_GOLD, ec=GOLD, title_color=GOLD,
+        title_fs=7.3, detail_fs=6.9, lw=1.15)
+    box(ax, 9.90, 2.05, 1.62, 1.00,
+        "ACTUATION", "adapter",
+        fc=PALE_PURPLE, ec=PURPLE, title_fs=5.7, detail_fs=5.8)
+    box(ax, 11.86, 2.05, 1.78, 1.00,
+        r"ACTIVE VIEW $a$", "next hop\nqueue · weight",
+        fc=PALE_BLUE, ec=NAVY, title_fs=5.7, detail_fs=5.1)
 
-    # ----- IR invariant: barred arrow between the two top boxes -----
-    barred_arrow(ax, 8.95, 6.95, 5.05, 6.95, color=RED)
+    box(ax, 0.35, 0.38, 13.29, 0.91,
+        "SHARED ROUTER-LOCAL RUNTIME",
+        "state · epochs · leases    |    validation · update · fallback    |    shadow · canary · active · logs",
+        fc=PALE_GRAY, ec=GRAY, title_color=GRAY,
+        title_fs=6.9, detail_fs=6.25, lw=1.05)
 
-    # ----- Convergence arrows from both top boxes into the selector -----
-    arrow(ax, 3.20, 6.20, 5.40, 5.20, color=BLUE, lw=1.7, rad=-0.05)
-    arrow(ax, 10.80, 6.20, 8.60, 5.20, color=GREEN, lw=1.7, rad=0.05)
+    centers = tuple(x + w / 2 for x in xs)
+    for xpos, color in zip(centers, (BLUE, GREEN, RED)):
+        arrow(ax, (xpos, 5.10), (xpos, 4.60), color=color)
+        arrow(ax, (xpos, 3.66), (xpos, 3.08), color=color)
 
-    # ----- Selector -----
-    box(ax, 3.5, 3.80, 7.0, 1.40,
-        "Local preference selector\n"
-        "rank  $\\cdot$  suppress  $\\cdot$  shift  $\\cdot$  probe  "
-        "$\\cdot$  shadow  $\\cdot$  fallback",
-        fc=PALE_ORANGE, ec=ORANGE, fs=10.5, weight="bold")
+    arrow(ax, (9.55, 2.55), (9.88, 2.55), color=PURPLE)
+    arrow(ax, (11.52, 2.55), (11.84, 2.55), color=NAVY)
 
-    # ----- Selector --> Governor -----
-    arrow(ax, 7.0, 3.80, 7.0, 3.00, color=ORANGE,
-          label="proposal $\\hat a^{(f)}_{u,t}$",
-          lx=9.10, ly=3.40, lw=1.8)
+    for xpos, target_y in ((2.1, 2.02), (6.95, 2.02), (10.70, 2.02), (12.75, 2.02)):
+        arrow(ax, (xpos, 1.31), (xpos, target_y), color=GRAY, lw=0.85, style="--")
 
-    # ----- Governor (update discipline) -----
-    box(ax, 3.5, 1.65, 7.0, 1.35,
-        "Update discipline (governor)\n"
-        "$\\mathsf{InCand} \\wedge \\mathsf{ValidEv} \\wedge "
-        "\\mathsf{Stable} \\wedge \\mathsf{Budget}$",
-        fc=PALE_PURPLE, ec=PURPLE, fs=10.5, weight="bold")
-
-    # ----- Governor --> Active forwarding view -----
-    arrow(ax, 7.0, 1.65, 7.0, 1.00, color=PURPLE,
-          label="admitted only", lx=9.10, ly=1.32, lw=1.8)
-
-    # ----- Active forwarding view -----
-    box(ax, 3.5, 0.05, 7.0, 0.95,
-        "Active forwarding view  "
-        "$a^{(f)}_{u,t} \\subseteq C_u(d;\\sigma)$",
-        fc=PALE_GRAY, ec=GRAY, fs=10.5, weight="bold")
-
-    # ----- Side annotation: slow-path-only widens; fast-path-only spends budget -----
-    ax.text(0.10, 2.50,
-            "only slow route\nstate widens\nor shrinks $C_u$",
-            ha="left", va="center",
-            fontsize=8.5, color=BLUE, fontweight="bold", linespacing=1.20)
-    ax.text(13.90, 2.50,
-            "evidence ages,\nfeeds selector,\nspends budget",
-            ha="right", va="center",
-            fontsize=8.5, color=GREEN, fontweight="bold", linespacing=1.20)
-
-    fig.savefig(PDF_OUT, bbox_inches="tight", pad_inches=0.05)
-    fig.savefig(PNG_OUT, dpi=300, bbox_inches="tight", pad_inches=0.05)
+    fig.savefig(PDF_OUT, bbox_inches="tight", pad_inches=0.035)
+    fig.savefig(PNG_OUT, dpi=300, bbox_inches="tight", pad_inches=0.035)
     plt.close(fig)
 
 

@@ -16,8 +16,11 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <random>
+#include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -305,6 +308,8 @@ struct CongestionEvent
     double penalty{1000.0};
 };
 
+struct RolloutState;
+
 struct ControlConfig
 {
     int32_t congestedLink{-1};
@@ -350,6 +355,9 @@ struct ControlConfig
     // candidate, e.g. the ingress bottleneck) are excluded from the
     // controller's drop signal: their drops carry no decision information.
     int32_t dropExcludeLink{-1};
+    // Non-null only for incremental-rollout experiments. Evidence processing
+    // and metric installation are then scoped by the per-router rollout view.
+    RolloutState* rollout{nullptr};
 };
 
 struct RouteMetricState
@@ -408,6 +416,42 @@ struct ControlState
     bool dropBaselineValid{false};
     // Burn memory: growth never again exceeds half the level that hurt.
     double burnedCeiling{0.0};
+};
+
+struct RolloutTransition
+{
+    double time{0.0};
+    std::string mode{"base"};
+    double coveragePct{0.0};
+};
+
+struct RolloutState
+{
+    bool enabled{false};
+    std::string placement{"random"};
+    std::string mode{"base"};
+    double requestedCoveragePct{0.0};
+    uint32_t desiredSelectorMode{InformationRoutingProtocol::TRAFFIC_AWARE};
+    std::vector<uint32_t> activationOrder;
+    std::vector<bool> evidenceEnabled;
+    std::vector<bool> activeEnabled;
+    std::vector<bool> peakActiveEnabled;
+    std::vector<bool> progressEligible;
+    double peakCoveragePct{0.0};
+    uint32_t peakActiveRouters{0};
+    uint64_t excludedNonprogressCandidates{0};
+    std::map<std::pair<uint32_t, uint32_t>, int64_t> baseRouteByPair;
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t> recordByKey;
+    uint64_t transitions{0};
+    uint64_t shadowProposals{0};
+    uint64_t rollbackAttempts{0};
+    uint64_t rollbackFailures{0};
+    double lastRollbackRestorationMs{-1.0};
+    uint64_t maxLoops{0};
+    uint64_t maxBlackholes{0};
+    uint64_t maxInvalidActions{0};
+    uint64_t maxProgressViolations{0};
+    uint64_t maxInactiveBaseMismatches{0};
 };
 
 struct RouteShare
@@ -768,6 +812,386 @@ CaptureBestRoutes(const NodeContainer& nodes,
     }
 }
 
+std::vector<RolloutTransition>
+ParseRolloutSchedule(const std::string& spec)
+{
+    std::vector<RolloutTransition> transitions;
+    std::string::size_type pos = 0;
+    while (pos < spec.size())
+    {
+        std::string::size_type comma = spec.find(',', pos);
+        std::string token = spec.substr(
+            pos,
+            comma == std::string::npos ? std::string::npos : comma - pos);
+        pos = comma == std::string::npos ? spec.size() : comma + 1;
+        if (token.empty())
+        {
+            continue;
+        }
+
+        std::string::size_type first = token.find(':');
+        std::string::size_type second =
+            first == std::string::npos ? std::string::npos : token.find(':', first + 1);
+        NS_ABORT_MSG_IF(first == std::string::npos || second == std::string::npos,
+                        "rolloutSchedule entry must be time:mode:coverage (got '" << token
+                                                                                  << "')");
+        RolloutTransition transition;
+        transition.time = std::stod(token.substr(0, first));
+        transition.mode = token.substr(first + 1, second - first - 1);
+        transition.coveragePct = std::stod(token.substr(second + 1));
+        NS_ABORT_MSG_IF(transition.time < 0.0,
+                        "rollout transition time must be non-negative");
+        NS_ABORT_MSG_IF(transition.coveragePct < 0.0 || transition.coveragePct > 100.0,
+                        "rollout coverage must be in [0,100]");
+        NS_ABORT_MSG_IF(transition.mode != "base" && transition.mode != "shadow" &&
+                            transition.mode != "canary" && transition.mode != "active" &&
+                            transition.mode != "rollback",
+                        "rollout mode must be base, shadow, canary, active, or rollback");
+        transitions.push_back(transition);
+    }
+    std::stable_sort(transitions.begin(),
+                     transitions.end(),
+                     [](const RolloutTransition& a, const RolloutTransition& b) {
+                         return a.time < b.time;
+                     });
+    return transitions;
+}
+
+std::vector<uint32_t>
+BuildRolloutOrder(const InformationTopology& topology,
+                  const InformationCandidateRouteSet& routes,
+                  const std::string& placement,
+                  uint32_t seed)
+{
+    std::vector<uint32_t> order(topology.GetNNodes());
+    std::iota(order.begin(), order.end(), 0);
+
+    if (placement == "random")
+    {
+        std::mt19937 generator(seed);
+        std::shuffle(order.begin(), order.end(), generator);
+        return order;
+    }
+
+    auto role = [&topology](uint32_t node) {
+        const std::string& id = topology.GetNode(node).id;
+        if (id.find("-edge-") != std::string::npos)
+        {
+            return 0;
+        }
+        if (id.find("-metro-") != std::string::npos)
+        {
+            return 1;
+        }
+        return 2;
+    };
+
+    if (placement == "edge-first" || placement == "core-first")
+    {
+        std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+            int roleA = role(a);
+            int roleB = role(b);
+            if (roleA != roleB)
+            {
+                return placement == "edge-first" ? roleA < roleB : roleA > roleB;
+            }
+            size_t degreeA = topology.GetAdjacentLinks(a).size();
+            size_t degreeB = topology.GetAdjacentLinks(b).size();
+            return degreeA != degreeB ? degreeA > degreeB : a < b;
+        });
+        return order;
+    }
+
+    NS_ABORT_MSG_IF(placement != "path-concentrated",
+                    "rolloutPlacement must be random, edge-first, core-first, or "
+                    "path-concentrated");
+    std::vector<uint64_t> pathCentrality(topology.GetNNodes(), 0);
+    for (const auto& record : routes.records)
+    {
+        for (uint32_t i = 1; i + 1 < record.pathNodes.size(); ++i)
+        {
+            ++pathCentrality[record.pathNodes[i]];
+        }
+    }
+    std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+        if (pathCentrality[a] != pathCentrality[b])
+        {
+            return pathCentrality[a] > pathCentrality[b];
+        }
+        size_t degreeA = topology.GetAdjacentLinks(a).size();
+        size_t degreeB = topology.GetAdjacentLinks(b).size();
+        return degreeA != degreeB ? degreeA > degreeB : a < b;
+    });
+    return order;
+}
+
+void
+ResetNodeFastMetrics(const NodeContainer& nodes,
+                     const InformationCandidateRouteSet& routes,
+                     uint32_t node,
+                     ControlState* control)
+{
+    if (control->routeMetrics.size() != routes.records.size())
+    {
+        control->routeMetrics.assign(routes.records.size(), RouteMetricState{});
+    }
+    Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+    for (uint32_t i = 0; i < routes.records.size(); ++i)
+    {
+        const auto& record = routes.records[i];
+        if (record.source != node || record.routeIndex >= routing->GetNRoutes())
+        {
+            continue;
+        }
+        routing->SetRouteMetrics(record.routeIndex, record.pathCost, 0.0, 0.0);
+        routing->SetRouteEligible(record.routeIndex, true);
+        control->routeMetrics[i] = RouteMetricState{};
+        control->routeMetrics[i].initialized = true;
+    }
+}
+
+struct RolloutAuditResult
+{
+    uint64_t loops{0};
+    uint64_t blackholes{0};
+    uint64_t invalidActions{0};
+    uint64_t progressViolations{0};
+    uint64_t inactiveBaseMismatches{0};
+};
+
+RolloutAuditResult
+AuditRollout(const NodeContainer& nodes,
+             const InformationCandidateRouteSet& routes,
+             const std::string& event,
+             ControlState* control,
+             RolloutState* rollout)
+{
+    RolloutAuditResult result;
+    std::map<std::pair<uint32_t, uint32_t>, int64_t> selected;
+    for (const auto& record : routes.records)
+    {
+        std::pair<uint32_t, uint32_t> pair{record.source, record.target};
+        if (selected.find(pair) == selected.end())
+        {
+            selected[pair] = GetInformationRouting(nodes.Get(record.source))
+                                 ->GetBestRouteIndex(record.destination);
+        }
+    }
+
+    for (const auto& choice : selected)
+    {
+        uint32_t source = choice.first.first;
+        uint32_t target = choice.first.second;
+        auto recordIt = rollout->recordByKey.find(
+            std::make_tuple(source, target, static_cast<uint32_t>(choice.second)));
+        if (choice.second < 0 || recordIt == rollout->recordByKey.end())
+        {
+            ++result.invalidActions;
+            continue;
+        }
+        const auto& record = routes.records[recordIt->second];
+        std::set<uint32_t> pathNodes(record.pathNodes.begin(), record.pathNodes.end());
+        bool progressViolation =
+            record.pathNodes.size() < 2 || record.pathNodes.front() != source ||
+            record.pathNodes.back() != target || pathNodes.size() != record.pathNodes.size() ||
+            recordIt->second >= rollout->progressEligible.size() ||
+            !rollout->progressEligible[recordIt->second];
+        if (progressViolation)
+        {
+            ++result.progressViolations;
+        }
+
+        if (source >= rollout->activeEnabled.size() || !rollout->activeEnabled[source])
+        {
+            auto baseIt = rollout->baseRouteByPair.find(choice.first);
+            if (baseIt == rollout->baseRouteByPair.end() || baseIt->second != choice.second)
+            {
+                ++result.inactiveBaseMismatches;
+            }
+        }
+    }
+
+    // Compose the independently selected next hops for every destination.
+    // This catches loops that are invisible when each candidate path is
+    // inspected in isolation.
+    for (const auto& pair : selected)
+    {
+        uint32_t current = pair.first.first;
+        uint32_t target = pair.first.second;
+        std::set<uint32_t> visited;
+        bool failed = false;
+        while (current != target)
+        {
+            if (!visited.insert(current).second)
+            {
+                ++result.loops;
+                failed = true;
+                break;
+            }
+            auto selectedIt = selected.find({current, target});
+            if (selectedIt == selected.end() || selectedIt->second < 0)
+            {
+                ++result.blackholes;
+                failed = true;
+                break;
+            }
+            auto recordIt = rollout->recordByKey.find(std::make_tuple(
+                current,
+                target,
+                static_cast<uint32_t>(selectedIt->second)));
+            if (recordIt == rollout->recordByKey.end())
+            {
+                ++result.blackholes;
+                failed = true;
+                break;
+            }
+            const auto& record = routes.records[recordIt->second];
+            if (record.pathNodes.size() < 2 || record.pathNodes.front() != current)
+            {
+                ++result.blackholes;
+                failed = true;
+                break;
+            }
+            current = record.pathNodes[1];
+        }
+        (void)failed;
+    }
+
+    rollout->maxLoops = std::max(rollout->maxLoops, result.loops);
+    rollout->maxBlackholes = std::max(rollout->maxBlackholes, result.blackholes);
+    rollout->maxInvalidActions = std::max(rollout->maxInvalidActions, result.invalidActions);
+    rollout->maxProgressViolations =
+        std::max(rollout->maxProgressViolations, result.progressViolations);
+    rollout->maxInactiveBaseMismatches =
+        std::max(rollout->maxInactiveBaseMismatches, result.inactiveBaseMismatches);
+
+    uint32_t evidenceRouters = static_cast<uint32_t>(
+        std::count(rollout->evidenceEnabled.begin(), rollout->evidenceEnabled.end(), true));
+    uint32_t activeRouters = static_cast<uint32_t>(
+        std::count(rollout->activeEnabled.begin(), rollout->activeEnabled.end(), true));
+    std::cout << "rollout_timeseries," << Simulator::Now().GetSeconds() << "," << event << ","
+              << rollout->mode << "," << rollout->requestedCoveragePct << ","
+              << evidenceRouters << "," << activeRouters << "," << result.loops << ","
+              << result.blackholes << "," << result.invalidActions << ","
+              << result.progressViolations << "," << result.inactiveBaseMismatches << ","
+              << control->counters.slowCostWrites << "," << rollout->shadowProposals << ","
+              << control->counters.candidateEvaluations << ","
+              << control->counters.metricWrites << "," << control->counters.bestRouteChanges
+              << "\n";
+    return result;
+}
+
+void
+ApplyRolloutTransition(const NodeContainer& nodes,
+                       const InformationCandidateRouteSet& routes,
+                       RolloutTransition transition,
+                       ControlState* control,
+                       RolloutState* rollout)
+{
+    rollout->mode = transition.mode;
+    rollout->requestedCoveragePct = transition.coveragePct;
+    ++rollout->transitions;
+    std::fill(rollout->evidenceEnabled.begin(), rollout->evidenceEnabled.end(), false);
+    std::fill(rollout->activeEnabled.begin(), rollout->activeEnabled.end(), false);
+
+    bool installsActions = transition.mode == "canary" || transition.mode == "active";
+    bool processesEvidence = installsActions || transition.mode == "shadow";
+    uint32_t selectedRouters = processesEvidence
+                                   ? static_cast<uint32_t>(std::ceil(
+                                         transition.coveragePct * nodes.GetN() / 100.0))
+                                   : 0;
+    selectedRouters = std::min(selectedRouters,
+                               static_cast<uint32_t>(rollout->activationOrder.size()));
+    for (uint32_t i = 0; i < selectedRouters; ++i)
+    {
+        uint32_t node = rollout->activationOrder[i];
+        rollout->evidenceEnabled[node] = true;
+        rollout->activeEnabled[node] = installsActions;
+    }
+
+    for (uint32_t node = 0; node < nodes.GetN(); ++node)
+    {
+        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+        routing->SetSelectorMode(InformationRoutingProtocol::STATIC_COST);
+        if (!rollout->activeEnabled[node])
+        {
+            ResetNodeFastMetrics(nodes, routes, node, control);
+        }
+    }
+    if (installsActions)
+    {
+        for (uint32_t node = 0; node < nodes.GetN(); ++node)
+        {
+            if (rollout->activeEnabled[node])
+            {
+                Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+                for (uint32_t i = 0; i < routes.records.size(); ++i)
+                {
+                    const auto& record = routes.records[i];
+                    if (record.source == node && record.routeIndex < routing->GetNRoutes())
+                    {
+                        routing->SetRouteEligible(record.routeIndex,
+                                                  rollout->progressEligible[i]);
+                    }
+                }
+                routing->SetSelectorMode(rollout->desiredSelectorMode);
+            }
+        }
+    }
+
+    RolloutAuditResult audit = AuditRollout(nodes, routes, "transition", control, rollout);
+    if (transition.mode == "rollback")
+    {
+        ++rollout->rollbackAttempts;
+        if (audit.inactiveBaseMismatches == 0)
+        {
+            rollout->lastRollbackRestorationMs = 0.0;
+        }
+        else
+        {
+            ++rollout->rollbackFailures;
+            rollout->lastRollbackRestorationMs = -1.0;
+        }
+    }
+}
+
+std::vector<bool>
+ComputeRolloutEligibleFlows(const std::vector<std::pair<uint32_t, uint32_t>>& pairs,
+                            const InformationCandidateRouteSet& routes,
+                            const RolloutState& rollout)
+{
+    if (!rollout.enabled)
+    {
+        return {};
+    }
+    std::vector<bool> eligible(pairs.size(), false);
+    for (uint32_t i = 0; i < pairs.size(); ++i)
+    {
+        auto baseIt = rollout.baseRouteByPair.find(pairs[i]);
+        if (baseIt == rollout.baseRouteByPair.end() || baseIt->second < 0)
+        {
+            continue;
+        }
+        auto recordIt = rollout.recordByKey.find(std::make_tuple(
+            pairs[i].first,
+            pairs[i].second,
+            static_cast<uint32_t>(baseIt->second)));
+        if (recordIt == rollout.recordByKey.end())
+        {
+            continue;
+        }
+        for (uint32_t node : routes.records[recordIt->second].pathNodes)
+        {
+            if (node < rollout.peakActiveEnabled.size() && rollout.peakActiveEnabled[node])
+            {
+                eligible[i] = true;
+                break;
+            }
+        }
+    }
+    return eligible;
+}
+
 RouteShare
 ComputeRouteShare(const InformationTopology& topology,
                   const InformationCandidateRouteSet& routes,
@@ -998,6 +1422,18 @@ RefreshRouteMetrics(const NodeContainer& nodes,
     for (uint32_t i = 0; i < routes.records.size(); ++i)
     {
         const auto& record = routes.records[i];
+        if (config.rollout && config.rollout->enabled &&
+            (record.source >= config.rollout->evidenceEnabled.size() ||
+             !config.rollout->evidenceEnabled[record.source]))
+        {
+            continue;
+        }
+        if (config.rollout && config.rollout->enabled &&
+            (i >= config.rollout->progressEligible.size() ||
+             !config.rollout->progressEligible[i]))
+        {
+            continue;
+        }
         ++state->counters.candidateEvaluations;
 
         Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
@@ -1025,6 +1461,26 @@ RefreshRouteMetrics(const NodeContainer& nodes,
                 if (noisy > targetQueue) { targetQueue = noisy; }
                 if (noisy > targetLoad)  { targetLoad  = noisy; }
             }
+        }
+
+        // Shadow routers run the same evidence-to-action computation but do
+        // not mutate forwarding state. Keeping RouteMetricState unchanged is
+        // important: activation must still install the latest observation on
+        // its first active refresh rather than suppressing it as a duplicate.
+        if (config.rollout && config.rollout->enabled && config.rollout->mode == "shadow")
+        {
+            double proposedQueue =
+                DampedMetric(metricState.queueMetric, targetQueue, config.dampingAlpha);
+            double proposedLoad =
+                DampedMetric(metricState.loadMetric, targetLoad, config.dampingAlpha);
+            double proposedDelta =
+                std::max(std::abs(proposedQueue - metricState.queueMetric),
+                         std::abs(proposedLoad - metricState.loadMetric));
+            if (proposedDelta >= config.hysteresisThreshold && proposedDelta > 0.0)
+            {
+                ++config.rollout->shadowProposals;
+            }
+            continue;
         }
 
         // Revision R4: metric-feedback counterfactual. Evidence is written
@@ -1172,6 +1628,11 @@ RefreshRouteMetrics(const NodeContainer& nodes,
               << bestShare.routesUsingLink << "," << bestDegradedShare << ","
               << priorityShare.routeCount << "," << priorityShare.routesUsingLink << ","
               << priorityDegradedShare << "\n";
+
+    if (config.rollout && config.rollout->enabled)
+    {
+        AuditRollout(nodes, routes, "refresh", state, config.rollout);
+    }
 
     if (config.refreshInterval > 0.0 && now + config.refreshInterval <= config.refreshStopTime + 1e-9)
     {
@@ -1401,9 +1862,39 @@ struct FlowAccumulator
 };
 
 void
+AccumulateFlowClass(ClassAccumulator* accumulator,
+                    const FlowAccumulator& flow,
+                    double fctMs,
+                    bool deadlineEligible,
+                    bool deadlineMiss)
+{
+    ++accumulator->flows;
+    accumulator->txBytes += flow.txBytes;
+    accumulator->rxBytes += flow.rxBytes;
+    accumulator->txPackets += flow.txPackets;
+    accumulator->rxPackets += flow.rxPackets;
+    accumulator->lostPackets += flow.lostPackets;
+    accumulator->delaySeconds += flow.delaySeconds;
+    accumulator->fctMs.push_back(fctMs);
+    for (const auto& statEntry : flow.stats)
+    {
+        accumulator->stats[statEntry.first] = statEntry.second;
+    }
+    if (deadlineEligible)
+    {
+        ++accumulator->deadlineEligible;
+        if (deadlineMiss)
+        {
+            ++accumulator->deadlineMisses;
+        }
+    }
+}
+
+void
 PrintFlowSummary(Ptr<FlowMonitor> monitor,
                  FlowMonitorHelper& flowmon,
                  const std::vector<FlowDescriptor>& flows,
+                 const std::vector<bool>& rolloutEligibleFlows,
                  double startTime,
                  double stopTime)
 {
@@ -1476,7 +1967,7 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
     double totalDelaySeconds = 0.0;
     std::map<std::string, ClassAccumulator> classStats;
 
-    std::cout << "flow_id,flow_index,traffic_class,tos,src_node,dst_node,src,dst,src_port,"
+    std::cout << "flow_id,flow_index,traffic_class,rollout_cohort,tos,src_node,dst_node,src,dst,src_port,"
               << "dst_port,tx_packets,rx_packets,lost_packets,rx_bytes,rx_mbps,delivery_ratio,"
               << "mean_delay_ms,p95_delay_ms,p99_delay_ms,fct_ms,deadline_ms,deadline_miss,"
               << "completion_ratio\n";
@@ -1512,9 +2003,15 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
         bool deadlineMiss =
             deadlineEligible &&
             (incompleteCappedFlow || flowAccumulator.rxPackets == 0 || fctMs > flow.deadlineMs);
+        std::string rolloutCohort = "not_applicable";
+        if (flow.index < rolloutEligibleFlows.size())
+        {
+            rolloutCohort = rolloutEligibleFlows[flow.index] ? "rollout_eligible" : "legacy_only";
+        }
 
         std::cout << flow.index << "," << flow.index << "," << flow.trafficClass << ","
-                  << TosHex(flow.tos) << "," << flow.sourceNode << "," << flow.targetNode << ","
+                  << rolloutCohort << "," << TosHex(flow.tos) << "," << flow.sourceNode << ","
+                  << flow.targetNode << ","
                   << flowAccumulator.sourceAddress << "," << flowAccumulator.destinationAddress << ","
                   << flowAccumulator.sourcePort << "," << flow.destinationPort << ","
                   << flowAccumulator.txPackets << "," << flowAccumulator.rxPackets << ","
@@ -1538,26 +2035,18 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
             }
         }
 
-        ClassAccumulator& classAccumulator = classStats[flow.trafficClass];
-        ++classAccumulator.flows;
-        classAccumulator.txBytes += flowAccumulator.txBytes;
-        classAccumulator.rxBytes += flowAccumulator.rxBytes;
-        classAccumulator.txPackets += flowAccumulator.txPackets;
-        classAccumulator.rxPackets += flowAccumulator.rxPackets;
-        classAccumulator.lostPackets += flowAccumulator.lostPackets;
-        classAccumulator.delaySeconds += flowAccumulator.delaySeconds;
-        classAccumulator.fctMs.push_back(fctMs);
-        for (const auto& statEntry : flowAccumulator.stats)
+        AccumulateFlowClass(&classStats[flow.trafficClass],
+                            flowAccumulator,
+                            fctMs,
+                            deadlineEligible,
+                            deadlineMiss);
+        if (rolloutCohort != "not_applicable")
         {
-            classAccumulator.stats[statEntry.first] = statEntry.second;
-        }
-        if (deadlineEligible)
-        {
-            ++classAccumulator.deadlineEligible;
-            if (deadlineMiss)
-            {
-                ++classAccumulator.deadlineMisses;
-            }
+            AccumulateFlowClass(&classStats[rolloutCohort],
+                                flowAccumulator,
+                                fctMs,
+                                deadlineEligible,
+                                deadlineMiss);
         }
     }
 
@@ -1725,6 +2214,11 @@ main(int argc, char* argv[])
     double failureTime = 15.0;
     double sampleInterval = 1.0;
     std::string flowmonFile;
+    // Incremental-rollout schedule: time:mode:coverage entries. The desired
+    // selector is installed only on the selected routers during canary/active.
+    std::string rolloutScheduleSpec;
+    std::string rolloutPlacement = "random";
+    uint32_t rolloutSeed = 0;
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("topology", "ring, grid, tiered, or graphml", topologyType);
@@ -1824,11 +2318,23 @@ main(int argc, char* argv[])
     cmd.AddValue("failureTime", "Time to fail failedLink", failureTime);
     cmd.AddValue("sampleInterval", "Sink goodput sampling interval in seconds; 0 disables", sampleInterval);
     cmd.AddValue("flowmonFile", "Optional FlowMonitor XML output file", flowmonFile);
+    cmd.AddValue("rolloutSchedule",
+                 "Comma-separated time:mode:coverage transitions; modes are base, shadow, "
+                 "canary, active, rollback",
+                 rolloutScheduleSpec);
+    cmd.AddValue("rolloutPlacement",
+                 "Activation order: random, edge-first, core-first, or path-concentrated",
+                 rolloutPlacement);
+    cmd.AddValue("rolloutSeed",
+                 "Placement seed; 0 reuses RngRun for matched randomized rollout",
+                 rolloutSeed);
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(tos > 255 || priorityTos > 255, "tos and priorityTos must fit in one byte");
     NS_ABORT_MSG_IF(appMode != "onoff" && appMode != "udp-client" && appMode != "tcp-bulk",
                     "appMode must be onoff, udp-client, or tcp-bulk");
+    NS_ABORT_MSG_IF(!rolloutScheduleSpec.empty() && refreshInterval <= 0.0,
+                    "rolloutSchedule requires refreshInterval > 0");
     if (appMode == "tcp-bulk" || transport == "tcp")
     {
         std::string tcpTypeId = tcpVariant.rfind("ns3::", 0) == 0 ? tcpVariant : "ns3::" + tcpVariant;
@@ -1893,7 +2399,10 @@ main(int argc, char* argv[])
     NodeContainer nodes = topologyHelper.CreateNodes(topology);
 
     InformationRoutingHelper routingHelper;
-    routingHelper.Set("SelectorMode", UintegerValue(selectorMode));
+    uint32_t installedSelectorMode = rolloutScheduleSpec.empty()
+                                         ? selectorMode
+                                         : InformationRoutingProtocol::STATIC_COST;
+    routingHelper.Set("SelectorMode", UintegerValue(installedSelectorMode));
     routingHelper.Set("CostWeight", DoubleValue(costWeight));
     routingHelper.Set("DelayWeight", DoubleValue(delayWeight));
     routingHelper.Set("QueueWeight", DoubleValue(queueWeight));
@@ -1916,6 +2425,120 @@ main(int argc, char* argv[])
 
     ControlState controlState;
     CaptureBestRoutes(nodes, routeSet, static_cast<uint8_t>(priorityTos), &controlState, false);
+
+    RolloutState rolloutState;
+    std::vector<RolloutTransition> rolloutTransitions;
+    if (!rolloutScheduleSpec.empty())
+    {
+        rolloutTransitions = ParseRolloutSchedule(rolloutScheduleSpec);
+        NS_ABORT_MSG_IF(rolloutTransitions.empty(),
+                        "rolloutSchedule did not contain any transitions");
+        rolloutState.enabled = true;
+        rolloutState.placement = rolloutPlacement;
+        rolloutState.desiredSelectorMode = selectorMode;
+        uint32_t effectiveRolloutSeed =
+            rolloutSeed > 0 ? rolloutSeed : static_cast<uint32_t>(RngSeedManager::GetRun());
+        rolloutState.activationOrder =
+            BuildRolloutOrder(topology, routeSet, rolloutPlacement, effectiveRolloutSeed);
+        rolloutState.evidenceEnabled.assign(nodes.GetN(), false);
+        rolloutState.activeEnabled.assign(nodes.GetN(), false);
+        rolloutState.peakActiveEnabled.assign(nodes.GetN(), false);
+        for (const auto& transition : rolloutTransitions)
+        {
+            if ((transition.mode == "canary" || transition.mode == "active") &&
+                transition.coveragePct > rolloutState.peakCoveragePct)
+            {
+                rolloutState.peakCoveragePct = transition.coveragePct;
+            }
+        }
+        rolloutState.peakActiveRouters = static_cast<uint32_t>(std::ceil(
+            rolloutState.peakCoveragePct * static_cast<double>(nodes.GetN()) / 100.0));
+        rolloutState.peakActiveRouters =
+            std::min(rolloutState.peakActiveRouters,
+                     static_cast<uint32_t>(rolloutState.activationOrder.size()));
+        for (uint32_t i = 0; i < rolloutState.peakActiveRouters; ++i)
+        {
+            rolloutState.peakActiveEnabled[rolloutState.activationOrder[i]] = true;
+        }
+        rolloutState.baseRouteByPair = controlState.bestRouteByPair;
+        for (uint32_t i = 0; i < routeSet.records.size(); ++i)
+        {
+            const auto& record = routeSet.records[i];
+            rolloutState.recordByKey[std::make_tuple(record.source,
+                                                     record.target,
+                                                     record.routeIndex)] = i;
+        }
+        std::map<std::pair<uint32_t, uint32_t>, double> baseDistance;
+        for (const auto& base : rolloutState.baseRouteByPair)
+        {
+            if (base.second < 0)
+            {
+                continue;
+            }
+            auto recordIt = rolloutState.recordByKey.find(std::make_tuple(
+                base.first.first,
+                base.first.second,
+                static_cast<uint32_t>(base.second)));
+            if (recordIt != rolloutState.recordByKey.end())
+            {
+                baseDistance[base.first] = routeSet.records[recordIt->second].pathCost;
+            }
+        }
+        rolloutState.progressEligible.assign(routeSet.records.size(), false);
+        for (uint32_t i = 0; i < routeSet.records.size(); ++i)
+        {
+            const auto& record = routeSet.records[i];
+            bool eligible = false;
+            if (record.pathNodes.size() >= 2 && record.pathNodes.front() == record.source &&
+                record.pathNodes.back() == record.target)
+            {
+                uint32_t nextHop = record.pathNodes[1];
+                if (nextHop == record.target)
+                {
+                    eligible = true;
+                }
+                else
+                {
+                    auto sourceDistance = baseDistance.find({record.source, record.target});
+                    auto nextDistance = baseDistance.find({nextHop, record.target});
+                    eligible = sourceDistance != baseDistance.end() &&
+                               nextDistance != baseDistance.end() &&
+                               nextDistance->second + 1e-9 < sourceDistance->second;
+                }
+            }
+            rolloutState.progressEligible[i] = eligible;
+            if (!eligible)
+            {
+                ++rolloutState.excludedNonprogressCandidates;
+            }
+        }
+
+        std::cout << "rollout_timeseries,time_s,event,mode,requested_coverage_pct,"
+                  << "evidence_routers,active_routers,compatibility_loops,"
+                  << "compatibility_blackholes,invalid_actions,progress_violations,"
+                  << "inactive_base_mismatches,slow_route_edits,shadow_proposals,"
+                  << "candidate_evaluations,metric_writes,best_route_changes\n";
+        if (rolloutTransitions.front().time > 1e-9)
+        {
+            Simulator::Schedule(Seconds(0.0),
+                                &ApplyRolloutTransition,
+                                nodes,
+                                routeSet,
+                                RolloutTransition{0.0, "base", 0.0},
+                                &controlState,
+                                &rolloutState);
+        }
+        for (const auto& transition : rolloutTransitions)
+        {
+            Simulator::Schedule(Seconds(transition.time),
+                                &ApplyRolloutTransition,
+                                nodes,
+                                routeSet,
+                                transition,
+                                &controlState,
+                                &rolloutState);
+        }
+    }
 
     // EVAL_REDESIGN.md E1: parse the optional cascading-event schedule.
     // Each tuple is `link:tOn:tOff:penalty` and tuples are comma-separated.
@@ -1970,6 +2593,7 @@ main(int argc, char* argv[])
         controlConfig.budgetMax = budgetMax;
         controlConfig.dropExcludeLink = bottleneckLink;
         controlConfig.priorityTos = static_cast<uint8_t>(priorityTos);
+        controlConfig.rollout = rolloutState.enabled ? &rolloutState : nullptr;
 
         double earliestEventOn = std::numeric_limits<double>::infinity();
         for (const auto& ev : parsedCongestionEvents)
@@ -2071,6 +2695,17 @@ main(int argc, char* argv[])
     {
         pairs = MakeTrafficPairs(topology.GetNNodes(), trafficMode, flowCount, hotspotNode, stride);
     }
+    std::vector<bool> rolloutEligibleFlows =
+        ComputeRolloutEligibleFlows(pairs, routeSet, rolloutState);
+    if (rolloutState.enabled)
+    {
+        std::cout << "rollout_eligible_flows,"
+                  << std::count(rolloutEligibleFlows.begin(), rolloutEligibleFlows.end(), true)
+                  << "\n";
+        std::cout << "rollout_legacy_only_flows,"
+                  << std::count(rolloutEligibleFlows.begin(), rolloutEligibleFlows.end(), false)
+                  << "\n";
+    }
     TrafficConfig trafficConfig;
     trafficConfig.appMode = appMode;
     trafficConfig.transport = transport;
@@ -2146,6 +2781,44 @@ main(int argc, char* argv[])
     std::cout << "topology_nodes," << topology.GetNNodes() << "\n";
     std::cout << "topology_links," << topology.GetNLinks() << "\n";
     std::cout << "candidate_routes," << routeSet.GetNInstalled() << "\n";
+    uint64_t totalRouteObjects = 0;
+    uint32_t maxRouteObjects = 0;
+    for (uint32_t node = 0; node < nodes.GetN(); ++node)
+    {
+        uint32_t routeObjects = GetInformationRouting(nodes.Get(node))->GetNRoutes();
+        totalRouteObjects += routeObjects;
+        maxRouteObjects = std::max(maxRouteObjects, routeObjects);
+    }
+    std::cout << "route_objects_total," << totalRouteObjects << "\n";
+    std::cout << "route_objects_max_per_router," << maxRouteObjects << "\n";
+    std::cout << "route_object_size_bytes," << sizeof(InformationRoute) << "\n";
+    std::cout << "route_state_bytes_lower_bound,"
+              << totalRouteObjects * sizeof(InformationRoute) << "\n";
+    std::cout << "rollout_enabled," << (rolloutState.enabled ? 1 : 0) << "\n";
+    if (rolloutState.enabled)
+    {
+        std::cout << "rollout_placement," << rolloutState.placement << "\n";
+        std::cout << "rollout_final_mode," << rolloutState.mode << "\n";
+        std::cout << "rollout_final_coverage_pct," << rolloutState.requestedCoveragePct << "\n";
+        std::cout << "rollout_peak_coverage_pct," << rolloutState.peakCoveragePct << "\n";
+        std::cout << "rollout_peak_active_routers," << rolloutState.peakActiveRouters << "\n";
+        std::cout << "rollout_excluded_nonprogress_candidates,"
+                  << rolloutState.excludedNonprogressCandidates << "\n";
+        std::cout << "rollout_transitions," << rolloutState.transitions << "\n";
+        std::cout << "rollout_shadow_proposals," << rolloutState.shadowProposals << "\n";
+        std::cout << "rollout_rollback_attempts," << rolloutState.rollbackAttempts << "\n";
+        std::cout << "rollout_rollback_failures," << rolloutState.rollbackFailures << "\n";
+        std::cout << "rollout_rollback_restoration_ms,"
+                  << rolloutState.lastRollbackRestorationMs << "\n";
+        std::cout << "rollout_max_compatibility_loops," << rolloutState.maxLoops << "\n";
+        std::cout << "rollout_max_compatibility_blackholes," << rolloutState.maxBlackholes
+                  << "\n";
+        std::cout << "rollout_max_invalid_actions," << rolloutState.maxInvalidActions << "\n";
+        std::cout << "rollout_max_progress_violations,"
+                  << rolloutState.maxProgressViolations << "\n";
+        std::cout << "rollout_max_inactive_base_mismatches,"
+                  << rolloutState.maxInactiveBaseMismatches << "\n";
+    }
     std::cout << "app_mode," << appMode << "\n";
     std::cout << "traffic_mode," << trafficMode << "\n";
     std::cout << "flows," << pairs.size() << "\n";
@@ -2210,7 +2883,12 @@ main(int argc, char* argv[])
         }
     }
 
-    PrintFlowSummary(monitor, flowmon, traffic.flows, startTime, stopTime);
+    PrintFlowSummary(monitor,
+                     flowmon,
+                     traffic.flows,
+                     rolloutEligibleFlows,
+                     startTime,
+                     stopTime);
 
     if (!flowmonFile.empty())
     {

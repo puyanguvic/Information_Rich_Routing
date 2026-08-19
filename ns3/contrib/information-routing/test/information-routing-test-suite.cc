@@ -95,6 +95,45 @@ class InformationRoutingTrafficAwareTestCase : public TestCase
 
 /**
  * @ingroup information-routing-tests
+ * Check that active-view validation excludes a candidate without removing it.
+ */
+class InformationRoutingEligibilityTestCase : public TestCase
+{
+  public:
+    InformationRoutingEligibilityTestCase()
+        : TestCase("InformationRouting selectors honor active-view eligibility")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        Ptr<InformationRoutingProtocol> routing = CreateObject<InformationRoutingProtocol>();
+        routing->SetSelectorMode(InformationRoutingProtocol::TRAFFIC_AWARE);
+        routing->AddHostRouteTo(Ipv4Address("10.1.1.1"), Ipv4Address("192.0.2.1"), 1, 1.0);
+        routing->AddHostRouteTo(Ipv4Address("10.1.1.1"), Ipv4Address("192.0.2.2"), 2, 1.0);
+        routing->SetRouteMetrics(0, 0.0, 20.0, 0.0);
+        routing->SetRouteMetrics(1, 0.0, 1.0, 0.0);
+
+        NS_TEST_ASSERT_MSG_EQ(routing->GetBestRouteIndex(Ipv4Address("10.1.1.1")),
+                              1,
+                              "Lower-score candidate should initially win");
+        routing->SetRouteEligible(1, false);
+        NS_TEST_ASSERT_MSG_EQ(routing->GetBestRouteIndex(Ipv4Address("10.1.1.1")),
+                              0,
+                              "Excluded candidate must not be selected");
+        NS_TEST_ASSERT_MSG_EQ(routing->GetNRoutes(),
+                              2,
+                              "Exclusion must not remove stable route state");
+        routing->SetRouteEligible(1, true);
+        NS_TEST_ASSERT_MSG_EQ(routing->GetBestRouteIndex(Ipv4Address("10.1.1.1")),
+                              1,
+                              "Restoring eligibility should restore candidate selection");
+    }
+};
+
+/**
+ * @ingroup information-routing-tests
  * Check targeted metric updates and route removal.
  */
 class InformationRoutingRouteUpdateTestCase : public TestCase
@@ -267,6 +306,7 @@ class InformationRoutingTestSuite : public TestSuite
     {
         AddTestCase(new InformationRoutingLongestPrefixTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationRoutingTrafficAwareTestCase, TestCase::Duration::QUICK);
+        AddTestCase(new InformationRoutingEligibilityTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationRoutingRouteUpdateTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationTopologyGraphmlTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationTopologyKShortestPathTestCase, TestCase::Duration::QUICK);

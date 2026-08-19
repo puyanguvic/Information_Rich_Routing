@@ -65,6 +65,36 @@ application layer:
 Supported traffic-pair modes are `hotspot`, `incast`, `permutation`,
 `all-to-all`, and `bipartite`.
 
+## Incremental rollout
+
+`rolloutSchedule` accepts comma-separated `time:mode:coverage` transitions.
+Modes are `base`, `shadow`, `canary`, `active`, and `rollback`; coverage is a
+percentage of routers. `rolloutPlacement` selects `random`, `edge-first`,
+`core-first`, or `path-concentrated` activation order. A zero `rolloutSeed`
+reuses `RngRun`, preserving matched randomized placement across sweep cells.
+
+Generate and run the smoke matrix with:
+
+```bash
+python3 contrib/information-routing/utils/build_rollout_config.py
+python3 contrib/information-routing/utils/run_wan_sweep.py \
+  --config contrib/information-routing/utils/wan_sweep_rollout_smoke.json \
+  --output-dir /tmp/irp-rollout-smoke
+```
+
+The full generated matrix separates fixed-coverage service runs from
+base-to-shadow-to-canary-to-active-to-rollback transition runs. After it
+completes, pair every cell with the seed-matched all-base run:
+
+```bash
+python3 contrib/information-routing/utils/analyze_rollout.py \
+  --sweep-dir results/information-routing/<rollout-run-dir>
+```
+
+The analyzer writes `coverage_benefit.csv` for network-wide, eligible-flow,
+and legacy-only comparisons, plus `transition_compatibility.csv` for structural
+violations, shadow proposals, and rollback restoration.
+
 ## Evaluation sweep
 
 The example config expands three scenarios across three selector modes and
@@ -108,6 +138,9 @@ Each run directory contains:
   through the configured degraded link.
 - `selection_timeseries.csv`: selected route deltas, entropy, and selected-path
   degraded share split into priority and nonpriority TOS classes.
+- `rollout_timeseries.csv`: mode/coverage, evidence and active-router counts,
+  loop/blackhole/action/path/base-deviation audits, shadow proposals, writes,
+  and route changes at every transition and information refresh.
 - `metrics.json`: structured per-run metadata and aggregate metrics.
 - `flowmon.xml`: raw FlowMonitor XML.
 

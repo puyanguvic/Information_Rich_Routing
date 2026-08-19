@@ -50,6 +50,7 @@ struct InformationRoute
     uint64_t selected;    //!< Number of times this candidate has been selected.
     std::map<uint8_t, uint64_t>
         selectedByTos;    //!< Selection count split by observed IPv4 TOS byte.
+    bool eligible;        //!< True when the candidate is in the current active view.
     bool connected;       //!< True when the entry was learned from an interface address.
 };
 
@@ -168,6 +169,18 @@ class InformationRoutingProtocol : public Ipv4RoutingProtocol
                          double delayMetric,
                          double queueMetric,
                          double loadMetric);
+
+    /**
+     * Include or exclude an installed candidate from the active view.
+     *
+     * This does not create, remove, or rewrite the stable route candidate. It
+     * is the runtime validation hook used to retain only actions that satisfy
+     * a shared destination-progress condition.
+     *
+     * @param index route index
+     * @param eligible true to expose the candidate to selectors
+     */
+    void SetRouteEligible(uint32_t index, bool eligible);
 
     /**
      * Update the information fields for a specific route candidate.

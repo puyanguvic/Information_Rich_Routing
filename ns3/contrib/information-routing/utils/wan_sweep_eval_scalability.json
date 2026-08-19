@@ -1,0 +1,221 @@
+{
+  "common": {
+    "topology": "tiered",
+    "appMode": "udp-client",
+    "transport": "udp",
+    "packetSize": 1000,
+    "traffic": "permutation",
+    "flowCount": 84,
+    "stride": 13,
+    "flowRate": "2Mbps",
+    "startTime": 1,
+    "stopTime": 6,
+    "simStopTime": 7,
+    "sampleInterval": 0,
+    "refreshStartTime": 1,
+    "refreshStopTime": 6,
+    "congestionEvents": "0:2:5:1000",
+    "profileSelector": 1
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "protocols": [
+    {
+      "name": "information_routing",
+      "args": {
+        "selectorMode": 2,
+        "costWeight": 0.0,
+        "delayWeight": 0.0,
+        "queueWeight": 1.0,
+        "loadWeight": 1.0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "state_n6_k2",
+      "args": {
+        "regions": 2,
+        "metrosPerRegion": 1,
+        "edgesPerMetro": 1,
+        "kPaths": 2,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n6_k4",
+      "args": {
+        "regions": 2,
+        "metrosPerRegion": 1,
+        "edgesPerMetro": 1,
+        "kPaths": 4,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n6_k8",
+      "args": {
+        "regions": 2,
+        "metrosPerRegion": 1,
+        "edgesPerMetro": 1,
+        "kPaths": 8,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n28_k2",
+      "args": {
+        "regions": 4,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 2,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n28_k4",
+      "args": {
+        "regions": 4,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n28_k8",
+      "args": {
+        "regions": 4,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 8,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n42_k2",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 2,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n42_k4",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n42_k8",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 8,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n80_k2",
+      "args": {
+        "regions": 8,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 2,
+        "kPaths": 2,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n80_k4",
+      "args": {
+        "regions": 8,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n80_k8",
+      "args": {
+        "regions": 8,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 2,
+        "kPaths": 8,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n130_k2",
+      "args": {
+        "regions": 10,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 3,
+        "kPaths": 2,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n130_k4",
+      "args": {
+        "regions": 10,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 3,
+        "kPaths": 4,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "state_n130_k8",
+      "args": {
+        "regions": 10,
+        "metrosPerRegion": 3,
+        "edgesPerMetro": 3,
+        "kPaths": 8,
+        "refreshInterval": 0.5
+      }
+    },
+    {
+      "name": "evidence_rate_1000ms",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 1.0
+      }
+    },
+    {
+      "name": "evidence_rate_100ms",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 0.1
+      }
+    },
+    {
+      "name": "evidence_rate_10ms",
+      "args": {
+        "regions": 6,
+        "metrosPerRegion": 2,
+        "edgesPerMetro": 2,
+        "kPaths": 4,
+        "refreshInterval": 0.01
+      }
+    }
+  ]
+}
