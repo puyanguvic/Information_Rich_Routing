@@ -1,4 +1,5 @@
 #include "ns3/information-routing.h"
+#include "ns3/information-routing-conformance.h"
 #include "ns3/information-routing-helper.h"
 #include "ns3/information-topology-helper.h"
 #include "ns3/information-topology.h"
@@ -6,6 +7,7 @@
 #include "ns3/ipv4-routing-helper.h"
 #include "ns3/ipv4.h"
 #include "ns3/simulator.h"
+#include "ns3/tcp-header.h"
 #include "ns3/test.h"
 
 #include <fstream>
@@ -174,6 +176,187 @@ class InformationRoutingRouteUpdateTestCase : public TestCase
 
 /**
  * @ingroup information-routing-tests
+ * Check the full portable runtime, native generation, and canonical action log.
+ */
+class InformationRoutingPortableRuntimeTestCase : public TestCase
+{
+  public:
+    InformationRoutingPortableRuntimeTestCase()
+        : TestCase("InformationRouting binds packet lookup to the full portable runtime")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        InformationTopology topology = InformationTopology::CreateRing(4);
+        InformationTopologyHelper topologyHelper;
+        NodeContainer nodes = topologyHelper.CreateNodes(topology);
+
+        InformationRoutingHelper routingHelper;
+        InternetStackHelper stack;
+        stack.SetRoutingHelper(routingHelper);
+        stack.Install(nodes);
+
+        InformationTopologyBuildResult build = topologyHelper.Install(topology, nodes);
+        topologyHelper.InstallCandidateRoutes(topology, build, 2);
+
+        Ptr<Ipv4> ipv4 = nodes.Get(0)->GetObject<Ipv4>();
+        Ptr<InformationRoutingProtocol> routing =
+            Ipv4RoutingHelper::GetRouting<InformationRoutingProtocol>(ipv4->GetRoutingProtocol());
+        NS_TEST_ASSERT_MSG_EQ(routing != nullptr, true, "Information routing protocol not found");
+
+        const uint64_t generation = routing->GetCandidateGeneration();
+        routing->SetRouteMetrics(0, 1.0, 2.0, 3.0);
+        NS_TEST_ASSERT_MSG_EQ(routing->GetCandidateGeneration(),
+                              generation,
+                              "evidence-only updates must not change candidate generation");
+
+        routing->SetProgramProfile("ir-load");
+        routing->EnableActionCounters(true);
+        routing->EnableActionLog(true);
+        Ipv4Header header;
+        header.SetDestination(build.GetPrimaryAddress(2));
+        Socket::SocketErrno error = Socket::ERROR_NOROUTETOHOST;
+        Ptr<Ipv4Route> first = routing->RouteOutput(Create<Packet>(64), header, nullptr, error);
+        Ptr<Ipv4Route> second = routing->RouteOutput(Create<Packet>(64), header, nullptr, error);
+        NS_TEST_ASSERT_MSG_EQ(first != nullptr && second != nullptr,
+                              true,
+                              "portable runtime must preserve packet lookup results");
+
+        auto records = routing->DrainActionLog();
+        NS_TEST_ASSERT_MSG_EQ(records.size(), 2, "expected one canonical record per lookup");
+        NS_TEST_ASSERT_MSG_EQ(records[0].actionStatus == ir::ActionStatus::ADMITTED,
+                              true,
+                              "the first active-view action should be admitted");
+        NS_TEST_ASSERT_MSG_EQ(records[0].backendAttempted && records[0].backendApplied,
+                              true,
+                              "an admitted action should be realized by the ns-3 backend");
+        NS_TEST_ASSERT_MSG_EQ(records[1].actionStatus ==
+                                  ir::ActionStatus::SUPPRESSED_DUPLICATE,
+                              true,
+                              "an identical packet lookup should suppress a duplicate write");
+        NS_TEST_ASSERT_MSG_EQ(records[1].backendAttempted,
+                              false,
+                              "a duplicate must not reach the ns-3 backend");
+        NS_TEST_ASSERT_MSG_EQ(records[0].candidateId,
+                              records[1].candidateId,
+                              "write suppression must not alter the selected next hop");
+        NS_TEST_ASSERT_MSG_EQ(records[0].policy,
+                              "ir-load",
+                              "named protocol profile must reach the portable selector");
+        const auto initialCounters = routing->DrainActionCounters();
+        NS_TEST_ASSERT_MSG_EQ(initialCounters.invocations,
+                              2,
+                              "counter path must observe both packet lookups");
+        NS_TEST_ASSERT_MSG_EQ(initialCounters.proposedActions,
+                              2,
+                              "both selected routes must be counted as proposals");
+        NS_TEST_ASSERT_MSG_EQ(initialCounters.admittedActions,
+                              1,
+                              "only the first active-view action should be admitted");
+        NS_TEST_ASSERT_MSG_EQ(initialCounters.suppressedDuplicate,
+                              1,
+                              "the repeated route must be counted as a duplicate suppression");
+        NS_TEST_ASSERT_MSG_EQ(initialCounters.backendApplied,
+                              1,
+                              "exactly one backend application is expected");
+
+        header.SetSource(build.GetPrimaryAddress(0));
+        header.SetProtocol(6);
+        TcpHeader tcp;
+        tcp.SetSourcePort(40000);
+        tcp.SetDestinationPort(50000);
+        Ptr<Packet> firstFlowPacket = Create<Packet>(64);
+        Ptr<Packet> secondFlowPacket = Create<Packet>(64);
+        firstFlowPacket->AddHeader(tcp);
+        secondFlowPacket->AddHeader(tcp);
+        Ptr<Ipv4Route> firstFlowRoute =
+            routing->RouteOutput(firstFlowPacket, header, nullptr, error);
+        Ptr<Ipv4Route> secondFlowRoute =
+            routing->RouteOutput(secondFlowPacket, header, nullptr, error);
+        NS_TEST_ASSERT_MSG_EQ(firstFlowRoute != nullptr && secondFlowRoute != nullptr,
+                              true,
+                              "flow-granular lookups must preserve reachability");
+        records = routing->DrainActionLog();
+        NS_TEST_ASSERT_MSG_EQ(records.size(),
+                              1,
+                              "only the first packet of a bound flow should invoke the runtime");
+        const auto flowCounters = routing->GetFlowBindingCounters();
+        NS_TEST_ASSERT_MSG_EQ(flowCounters.misses, 1, "first flow packet should create a binding");
+        NS_TEST_ASSERT_MSG_EQ(flowCounters.hits, 1, "second flow packet should reuse its binding");
+        const auto flowActionCounters = routing->DrainActionCounters();
+        NS_TEST_ASSERT_MSG_EQ(flowActionCounters.invocations,
+                              1,
+                              "a binding hit must not create another portable action");
+
+        const auto selected = static_cast<uint32_t>(records[0].candidateId);
+        routing->SetRouteEligible(selected, false);
+        NS_TEST_ASSERT_MSG_EQ(routing->GetCandidateGeneration(),
+                              generation + 1,
+                              "candidate membership changes must advance native generation");
+
+        header.SetProtocol(0);
+        Ptr<Ipv4Route> replacement =
+            routing->RouteOutput(Create<Packet>(64), header, nullptr, error);
+        NS_TEST_ASSERT_MSG_EQ(replacement != nullptr,
+                              true,
+                              "another admissible candidate should replace the excluded route");
+        records = routing->DrainActionLog();
+        NS_TEST_ASSERT_MSG_EQ(records.size(), 1, "expected one record for the replacement lookup");
+        NS_TEST_ASSERT_MSG_EQ(records[0].generation,
+                              generation + 1,
+                              "action record must carry the current native generation");
+        NS_TEST_ASSERT_MSG_EQ(records[0].candidateId != selected,
+                              true,
+                              "excluded candidate must not remain in the active view");
+        NS_TEST_ASSERT_MSG_EQ(records[0].backendApplied,
+                              true,
+                              "replacement action should be applied to the ns-3 active view");
+
+        Simulator::Destroy();
+    }
+};
+
+/**
+ * @ingroup information-routing-tests
+ * Replay every shared conformance epoch through the production ns-3 adapter.
+ */
+class InformationRoutingConformanceTraceTestCase : public TestCase
+{
+  public:
+    InformationRoutingConformanceTraceTestCase()
+        : TestCase("InformationRouting ns-3 adapter matches the canonical conformance trace")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        SetDataDir(NS_TEST_SOURCEDIR);
+        const std::string tracePath =
+            CreateDataDirFilename("../core/test/conformance-trace.csv");
+        const auto result = ReplayInformationRoutingConformance(tracePath);
+        NS_TEST_ASSERT_MSG_EQ(result.epochCount,
+                              14,
+                              "the ns-3 adapter must replay every canonical epoch");
+        NS_TEST_ASSERT_MSG_EQ(result.canonicalRows.size(),
+                              result.epochCount,
+                              "the ns-3 adapter must emit one row per epoch");
+        NS_TEST_ASSERT_MSG_EQ(result.matched,
+                              true,
+                              "the ns-3 adapter canonical output differs from the fixture");
+        for (const auto& row : result.canonicalRows)
+        {
+            NS_TEST_ASSERT_MSG_EQ(!row.empty() && row.back() == '1',
+                                  true,
+                                  "a canonical ns-3 adapter row did not match");
+        }
+    }
+};
+
+/**
+ * @ingroup information-routing-tests
  * Check GraphML parsing for a minimal Topology Zoo style file.
  */
 class InformationTopologyGraphmlTestCase : public TestCase
@@ -280,7 +463,7 @@ class InformationTopologyRouteInstallTestCase : public TestCase
 
         NS_TEST_ASSERT_MSG_EQ(installed,
                               12,
-                              "Three-node ring should install two paths for each ordered pair");
+                              "Strict-progress routes should cover every target interface address");
 
         Ptr<Ipv4> ipv4 = nodes.Get(0)->GetObject<Ipv4>();
         Ptr<InformationRoutingProtocol> routing =
@@ -308,6 +491,8 @@ class InformationRoutingTestSuite : public TestSuite
         AddTestCase(new InformationRoutingTrafficAwareTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationRoutingEligibilityTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationRoutingRouteUpdateTestCase, TestCase::Duration::QUICK);
+        AddTestCase(new InformationRoutingPortableRuntimeTestCase, TestCase::Duration::QUICK);
+        AddTestCase(new InformationRoutingConformanceTraceTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationTopologyGraphmlTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationTopologyKShortestPathTestCase, TestCase::Duration::QUICK);
         AddTestCase(new InformationTopologyRouteInstallTestCase, TestCase::Duration::QUICK);

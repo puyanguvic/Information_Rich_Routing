@@ -84,17 +84,20 @@ def parse_stdout(stdout: str) -> tuple[
     list[dict[str, str]],
     list[dict[str, str]],
     list[dict[str, str]],
+    list[dict[str, str]],
     dict[str, Any],
 ]:
     metadata: dict[str, Any] = {}
     flows: list[dict[str, str]] = []
     timeseries: list[dict[str, str]] = []
+    link_timeseries: list[dict[str, str]] = []
     control_timeseries: list[dict[str, str]] = []
     selection_timeseries: list[dict[str, str]] = []
     rollout_timeseries: list[dict[str, str]] = []
     class_summary: list[dict[str, str]] = []
     flow_header: list[str] | None = None
     timeseries_header: list[str] | None = None
+    link_timeseries_header: list[str] | None = None
     control_timeseries_header: list[str] | None = None
     selection_timeseries_header: list[str] | None = None
     rollout_timeseries_header: list[str] | None = None
@@ -113,6 +116,9 @@ def parse_stdout(stdout: str) -> tuple[
             continue
         if columns[0] == "timeseries" and len(columns) > 1 and columns[1] == "time_s":
             timeseries_header = columns
+            continue
+        if columns[0] == "link_timeseries" and len(columns) > 1 and columns[1] == "time_s":
+            link_timeseries_header = columns
             continue
         if columns[0] == "control_timeseries" and len(columns) > 1 and columns[1] == "time_s":
             control_timeseries_header = columns
@@ -140,6 +146,10 @@ def parse_stdout(stdout: str) -> tuple[
             continue
         if timeseries_header and len(columns) == len(timeseries_header) and columns[0] == "timeseries":
             timeseries.append(dict(zip(timeseries_header, columns)))
+            continue
+        if (link_timeseries_header and len(columns) == len(link_timeseries_header)
+                and columns[0] == "link_timeseries"):
+            link_timeseries.append(dict(zip(link_timeseries_header, columns)))
             continue
         if (control_timeseries_header and len(columns) == len(control_timeseries_header)
                 and columns[0] == "control_timeseries"):
@@ -174,6 +184,7 @@ def parse_stdout(stdout: str) -> tuple[
         metadata,
         flows,
         timeseries,
+        link_timeseries,
         control_timeseries,
         selection_timeseries,
         rollout_timeseries,
@@ -324,6 +335,28 @@ def write_group_summary(path: Path, rows: list[dict[str, Any]]) -> None:
         "selector_profile_p50_ns",
         "selector_profile_p99_ns",
         "selector_profile_mean_ns",
+        "link_telemetry_rounds",
+        "link_active_direction_samples",
+        "link_p99_active_utilization_pct",
+        "link_max_utilization_pct",
+        "link_p99_active_queue_occupancy_pct",
+        "link_max_queue_occupancy_pct",
+        "runtime_invocations",
+        "runtime_selected_decisions",
+        "runtime_fallback_decisions",
+        "runtime_no_candidate_decisions",
+        "runtime_proposed_actions",
+        "runtime_admitted_actions",
+        "runtime_suppressed_duplicate",
+        "runtime_suppressed_dwell",
+        "runtime_suppressed_budget",
+        "runtime_backend_attempted",
+        "runtime_backend_applied",
+        "runtime_backend_rejected",
+        "flow_binding_hits",
+        "flow_binding_misses",
+        "flow_binding_expired",
+        "flow_binding_invalidated",
         "rollout_shadow_proposals",
         "rollout_excluded_nonprogress_candidates",
         "rollout_rollback_failures",
@@ -335,12 +368,14 @@ def write_group_summary(path: Path, rows: list[dict[str, Any]]) -> None:
         "rollout_max_inactive_base_mismatches",
         "latency_rx_mbps",
         "latency_delivery_ratio",
+        "latency_mean_completion_ratio",
         "latency_p99_delay_ms",
         "latency_mean_fct_ms",
         "latency_p99_fct_ms",
         "latency_deadline_miss_pct",
         "bulk_rx_mbps",
         "bulk_delivery_ratio",
+        "bulk_mean_completion_ratio",
         "bulk_p99_delay_ms",
         "bulk_mean_fct_ms",
         "bulk_p99_fct_ms",
@@ -416,6 +451,7 @@ def main() -> int:
         else ns3_root / "results" / "information-routing" / f"wan-sweep-{timestamp}"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / "sweep_config.json", config)
 
     common = config.get("common", {})
     protocols = config.get("protocols", [])
@@ -506,6 +542,7 @@ def main() -> int:
                     metadata,
                     flow_rows,
                     timeseries_rows,
+                    link_timeseries_rows,
                     control_timeseries_rows,
                     selection_timeseries_rows,
                     rollout_timeseries_rows,
@@ -514,6 +551,7 @@ def main() -> int:
                 ) = parse_stdout(completed.stdout)
                 write_rows_csv(run_dir / "flow_stats.csv", flow_rows)
                 write_rows_csv(run_dir / "timeseries.csv", timeseries_rows)
+                write_rows_csv(run_dir / "link_timeseries.csv", link_timeseries_rows)
                 write_rows_csv(run_dir / "control_timeseries.csv", control_timeseries_rows)
                 write_rows_csv(run_dir / "selection_timeseries.csv", selection_timeseries_rows)
                 write_rows_csv(run_dir / "rollout_timeseries.csv", rollout_timeseries_rows)
@@ -531,6 +569,7 @@ def main() -> int:
                         "stderr": str(run_dir / "stderr.txt"),
                         "flow_stats": str(run_dir / "flow_stats.csv"),
                         "timeseries": str(run_dir / "timeseries.csv"),
+                        "link_timeseries": str(run_dir / "link_timeseries.csv"),
                         "control_timeseries": str(run_dir / "control_timeseries.csv"),
                         "selection_timeseries": str(run_dir / "selection_timeseries.csv"),
                         "rollout_timeseries": str(run_dir / "rollout_timeseries.csv"),

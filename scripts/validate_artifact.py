@@ -22,16 +22,36 @@ REQUIRED_PATHS = [
     "docs/RESULTS_AND_DATA.md",
     "ns3/NS3_VERSION",
     "ns3/contrib/information-routing/CMakeLists.txt",
+    "ns3/contrib/information-routing/core/ir-conformance.cc",
+    "ns3/contrib/information-routing/core/ir-conformance.h",
+    "ns3/contrib/information-routing/core/ir-core.cc",
+    "ns3/contrib/information-routing/core/ir-core.h",
+    "ns3/contrib/information-routing/core/test/conformance-trace.csv",
     "ns3/contrib/information-routing/model/information-routing.cc",
     "ns3/contrib/information-routing/model/information-routing.h",
+    "ns3/contrib/information-routing/model/information-routing-runtime-adapter.cc",
+    "ns3/contrib/information-routing/model/information-routing-runtime-adapter.h",
+    "ns3/contrib/information-routing/examples/information-routing-conformance.cc",
+    "ns3/contrib/information-routing/examples/information-routing-runtime-benchmark.cc",
     "ns3/contrib/information-routing/examples/information-routing-wan-experiment.cc",
+    "ns3/contrib/information-routing/utils/analyze_program_functions.py",
     "ns3/contrib/information-routing/utils/run_wan_sweep.py",
+    "ns3/contrib/information-routing/utils/wan_sweep_eval_program_functions.json",
     "containerlab/srlinux-clos2x2/clos2x2_srlinux.clab.yaml",
     "containerlab/srlinux-clos2x2/nokia_srlinux.yaml",
     "tools/run_containerlab_recovery_cdf.py",
     "tools/run_containerlab_governor_stress.py",
     "tools/run_containerlab_app_recovery.py",
     "experiments/containerlab/app_recovery.yaml",
+    "docs/PORTABILITY.md",
+    "scripts/test_ns3_conformance.sh",
+    "scripts/run_runtime_benchmark.sh",
+    "scripts/run_runtime_benchmark_trials.sh",
+    "scripts/aggregate_runtime_benchmark.py",
+    "scripts/generate_framework_evaluation_tables.py",
+    "scripts/plot_program_functions.py",
+    "scripts/validate_runtime_benchmark.py",
+    "paper/figure-scripts/draw_runtime_cost_m2.py",
     "traces/fb_hadoop_synth_load1x.csv",
 ]
 
@@ -87,6 +107,35 @@ FORBIDDEN_PATTERNS = [
 ]
 
 TRACE_HEADER = ["t_start_s", "src", "dst", "bytes", "tos"]
+CONFORMANCE_HEADER = [
+    "epoch",
+    "time_s",
+    "scope",
+    "generation",
+    "traffic_class",
+    "program",
+    "candidate_id",
+    "stable_cost",
+    "eligible",
+    "delay",
+    "queue",
+    "load",
+    "confidence",
+    "timestamp_s",
+    "expires_after_s",
+    "backend_mode",
+    "backend_generation",
+    "expected_status",
+    "expected_candidate",
+    "expected_score",
+    "expected_policy",
+    "expected_reason",
+    "expected_action_status",
+    "expected_action_generation",
+    "expected_attempted",
+    "expected_applied",
+    "expected_backend_detail",
+]
 NS3_COMMIT = "80ffa6e66e9c59d7e80c324576daaf574ba3481b"
 
 
@@ -205,6 +254,26 @@ def check_trace_headers() -> CheckResult:
     return CheckResult("trace csv headers", errors)
 
 
+def check_conformance_trace() -> CheckResult:
+    errors = []
+    path = ROOT / "ns3/contrib/information-routing/core/test/conformance-trace.csv"
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+        handle.seek(0)
+        header = next(csv.reader(handle), None)
+    if header != CONFORMANCE_HEADER:
+        errors.append(f"{rel(path)}: unexpected canonical header")
+        return CheckResult("conformance trace", errors)
+
+    epochs = {row["epoch"] for row in rows}
+    programs = {row["program"] for row in rows}
+    if len(epochs) != 14:
+        errors.append(f"{rel(path)}: expected 14 epochs, found {len(epochs)}")
+    if programs != {"ir-deg", "ir-load", "ir-class"}:
+        errors.append(f"{rel(path)}: unexpected program set {sorted(programs)}")
+    return CheckResult("conformance trace", errors)
+
+
 def check_ns3_version_pin() -> CheckResult:
     errors = []
     version_path = ROOT / "ns3/NS3_VERSION"
@@ -229,6 +298,7 @@ def run_checks() -> list[CheckResult]:
         check_forbidden_paths(files),
         check_containerlab_topology(),
         check_trace_headers(),
+        check_conformance_trace(),
         check_ns3_version_pin(),
     ]
 

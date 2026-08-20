@@ -49,6 +49,17 @@ application layer:
 - `tos`, `tosProfile=single|latency-bulk|bulk-low`, and `latencyEvery` configure
   per-flow IPv4 TOS.  `tosAware=true` makes the information-rich selector apply
   priority-class weights when the packet TOS matches `priorityTos`.
+- `programProfile=ir-deg|ir-load|ir-class` binds selector mode 2 to a named
+  portable-core program. `runtimeActionCounters=true` emits its invocation,
+  selection, admission, suppression, and backend-outcome counters. Named
+  profiles are required for function-native claims; explicit selector weights
+  remain useful controls.
+- `defaultLinkRate` and `defaultLinkDelayMs` set synthetic-topology link
+  properties. `linkTelemetryInterval` samples actual transmissions at
+  `PhyTxBegin` plus queue occupancy. `sensedLoadScale=1` feeds clamped,
+  normalized utilization back into route evidence in the path's forwarding
+  direction, while `sensedLoadThreshold` controls which links are marked
+  active. Raw output percentages remain unclamped for audit.
 - `latencyDeadlineMs` and `bulkDeadlineMs` attach class-specific FCT deadlines
   to generated flows.  The run writes per-flow `fct_ms`, `deadline_miss`, and
   `completion_ratio`, plus per-class FCT and deadline-miss aggregates.
@@ -134,6 +145,8 @@ Each run directory contains:
 - `flow_stats.csv`: FlowMonitor flow-level CSV with throughput and tail delay.
 - `class_summary.csv`: per-class throughput, delay, FCT, and deadline misses.
 - `timeseries.csv`: all-flow and per-class receive goodput sampled over time.
+- `link_timeseries.csv`: per-direction transmit rate, utilization, queue
+  occupancy, and packet depth sampled from each topology link.
 - `control_timeseries.csv`: telemetry refresh counters and selected-path share
   through the configured degraded link.
 - `selection_timeseries.csv`: selected route deltas, entropy, and selected-path
@@ -143,6 +156,33 @@ Each run directory contains:
   and route changes at every transition and information refresh.
 - `metrics.json`: structured per-run metadata and aggregate metrics.
 - `flowmon.xml`: raw FlowMonitor XML.
+
+The source sweep configuration is also copied to `sweep_config.json`, so an
+analysis can validate the exact profile bindings and seed matrix that produced
+the run rather than relying on a later checkout's defaults.
+
+## Function-native IR-Load/IR-Class sweep
+
+The dedicated matrix uses an all-bulk negative control and a mixed
+latency/bulk workload:
+
+```bash
+python3 contrib/information-routing/utils/run_wan_sweep.py \
+  --config contrib/information-routing/utils/wan_sweep_eval_program_functions.json \
+  --output-dir results/information-routing/program-functions
+
+python3 contrib/information-routing/utils/analyze_program_functions.py \
+  --input-dir results/information-routing/program-functions
+
+python3 /path/to/Information_Rich_Routing/scripts/plot_program_functions.py \
+  --analysis-dir results/information-routing/program-functions-program-analysis
+```
+
+Use `--only-seed 1` on the runner and `--allow-incomplete` on the analyzer only
+for a smoke test. The paper analysis requires all configured seeds and emits
+aggregate, paired-effect, per-seed paired-sample, and strict-check products.
+The plotting command invokes the artifact-root script; use the local artifact
+path and, if needed, pass an absolute analysis path.
 
 The runner refreshes `summary.csv`, `summary_by_protocol.csv`, and `summary.md`
 after every completed run, so partially completed long sweeps can still be

@@ -7,6 +7,9 @@
 #include "ns3/nstime.h"
 #include "ns3/point-to-point-helper.h"
 
+#include <algorithm>
+#include <set>
+
 namespace ns3
 {
 
@@ -72,6 +75,7 @@ InformationTopologyHelper::Install(const InformationTopology& topology, const No
     InformationTopologyBuildResult result;
     result.nodes = nodes;
     result.primaryAddresses.assign(topology.GetNNodes(), Ipv4Address::GetZero());
+    result.nodeAddresses.resize(topology.GetNNodes());
 
     Ipv4AddressHelper addressHelper;
     addressHelper.SetBase(m_network, m_mask, m_base);
@@ -105,6 +109,8 @@ InformationTopologyHelper::Install(const InformationTopology& topology, const No
         reverse.interface = toIpv4->GetInterfaceForDevice(devices.Get(1));
         reverse.nextHopAddress = interfaces.GetAddress(0);
         result.adjacency[{link.to, link.from}] = reverse;
+        result.nodeAddresses[link.from].push_back(interfaces.GetAddress(0));
+        result.nodeAddresses[link.to].push_back(interfaces.GetAddress(1));
 
         if (result.primaryAddresses[link.from] == Ipv4Address::GetZero())
         {
@@ -152,32 +158,83 @@ InformationTopologyHelper::InstallCandidateRouteSet(const InformationTopology& t
                 continue;
             }
 
-            auto paths = topology.GetKShortestPaths(source, target, k);
-            for (const auto& path : paths)
+            const auto sourceShortest = topology.GetKShortestPaths(source, target, 1);
+            NS_ABORT_MSG_IF(sourceShortest.empty(), "No stable path to reachable target");
+            const double sourceDistance = sourceShortest.front().cost;
+            std::vector<InformationPath> progressPaths;
+            std::set<uint32_t> firstHops;
+            for (uint32_t linkIndex : topology.GetAdjacentLinks(source))
             {
-                if (path.nodes.size() < 2)
+                const uint32_t neighbor = topology.GetOtherNode(linkIndex, source);
+                if (!firstHops.insert(neighbor).second)
                 {
                     continue;
                 }
-                InformationTopologyAdjacency adjacency;
-                bool found = build.GetAdjacency(source, path.nodes[1], &adjacency);
-                NS_ABORT_MSG_IF(!found, "Missing directed adjacency for path first hop");
-                uint32_t routeIndex = routing->GetNRoutes();
-                routing->AddHostRouteTo(build.GetPrimaryAddress(target),
-                                        adjacency.nextHopAddress,
-                                        adjacency.interface,
-                                        path.cost);
+                InformationPath suffixPath;
+                if (neighbor == target)
+                {
+                    suffixPath.nodes = {target};
+                    suffixPath.cost = 0.0;
+                }
+                else
+                {
+                    const auto suffix = topology.GetKShortestPaths(neighbor, target, 1);
+                    if (suffix.empty())
+                    {
+                        continue;
+                    }
+                    suffixPath = suffix.front();
+                }
+                if (!(suffixPath.cost + 1e-12 < sourceDistance))
+                {
+                    continue;
+                }
+                InformationPath path;
+                path.nodes.push_back(source);
+                path.nodes.insert(path.nodes.end(),
+                                  suffixPath.nodes.begin(),
+                                  suffixPath.nodes.end());
+                path.cost = topology.GetLink(linkIndex).cost + suffixPath.cost;
+                progressPaths.push_back(std::move(path));
+            }
+            std::sort(progressPaths.begin(),
+                      progressPaths.end(),
+                      [](const InformationPath& left, const InformationPath& right) {
+                          if (left.cost != right.cost)
+                          {
+                              return left.cost < right.cost;
+                          }
+                          return left.nodes < right.nodes;
+                      });
+            if (progressPaths.size() > k)
+            {
+                progressPaths.resize(k);
+            }
 
-                InformationCandidateRouteRecord record;
-                record.source = source;
-                record.target = target;
-                record.routeIndex = routeIndex;
-                record.destination = build.GetPrimaryAddress(target);
-                record.nextHopAddress = adjacency.nextHopAddress;
-                record.interface = adjacency.interface;
-                record.pathCost = path.cost;
-                record.pathNodes = path.nodes;
-                routeSet.records.push_back(record);
+            for (Ipv4Address destination : build.nodeAddresses[target])
+            {
+                for (const auto& path : progressPaths)
+                {
+                    InformationTopologyAdjacency adjacency;
+                    bool found = build.GetAdjacency(source, path.nodes[1], &adjacency);
+                    NS_ABORT_MSG_IF(!found, "Missing directed adjacency for path first hop");
+                    uint32_t routeIndex = routing->GetNRoutes();
+                    routing->AddHostRouteTo(destination,
+                                            adjacency.nextHopAddress,
+                                            adjacency.interface,
+                                            path.cost);
+
+                    InformationCandidateRouteRecord record;
+                    record.source = source;
+                    record.target = target;
+                    record.routeIndex = routeIndex;
+                    record.destination = destination;
+                    record.nextHopAddress = adjacency.nextHopAddress;
+                    record.interface = adjacency.interface;
+                    record.pathCost = path.cost;
+                    record.pathNodes = path.nodes;
+                    routeSet.records.push_back(record);
+                }
             }
         }
     }

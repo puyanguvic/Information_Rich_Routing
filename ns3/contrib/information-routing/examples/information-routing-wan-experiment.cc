@@ -33,6 +33,15 @@ namespace
 // main() after topology build; nullptr disables sensing.
 const std::vector<NetDeviceContainer>* g_linkDevices = nullptr;
 
+struct LinkTelemetryState
+{
+    std::vector<uint64_t> intervalTxBytes;
+    std::vector<double> directionalLoad;
+    std::vector<double> activeUtilizationPct;
+    std::vector<double> activeQueueOccupancyPct;
+    uint64_t samples{0};
+};
+
 bool
 PathUsesLink(const InformationTopology& topology,
              const InformationCandidateRouteRecord& record,
@@ -62,6 +71,133 @@ GetInformationRouting(Ptr<Node> node)
         Ipv4RoutingHelper::GetRouting<InformationRoutingProtocol>(ipv4->GetRoutingProtocol());
     NS_ABORT_MSG_IF(!routing, "Node does not use InformationRoutingProtocol");
     return routing;
+}
+
+void
+RecordLinkTx(LinkTelemetryState* state,
+             uint32_t linkIndex,
+             uint32_t direction,
+             Ptr<const Packet> packet)
+{
+    const size_t offset = (static_cast<size_t>(linkIndex) * 2) + direction;
+    if (offset < state->intervalTxBytes.size())
+    {
+        state->intervalTxBytes[offset] += packet->GetSize();
+    }
+}
+
+double
+VectorPercentile(std::vector<double> values, double percentile)
+{
+    if (values.empty())
+    {
+        return 0.0;
+    }
+    std::sort(values.begin(), values.end());
+    const size_t index = std::min(
+        values.size() - 1,
+        static_cast<size_t>(std::ceil(percentile * static_cast<double>(values.size()))) - 1);
+    return values[index];
+}
+
+void
+SampleLinkTelemetry(const InformationTopology& topology,
+                    double intervalSeconds,
+                    double stopTime,
+                    LinkTelemetryState* state)
+{
+    NS_ABORT_MSG_IF(!g_linkDevices, "link telemetry requires installed link devices");
+    const double now = Simulator::Now().GetSeconds();
+    ++state->samples;
+    for (uint32_t link = 0; link < topology.GetNLinks(); ++link)
+    {
+        const auto& devices = (*g_linkDevices)[link];
+        const double capacityBps =
+            static_cast<double>(topology.GetLink(link).dataRate.GetBitRate());
+        for (uint32_t direction = 0; direction < std::min<uint32_t>(2, devices.GetN());
+             ++direction)
+        {
+            const size_t offset = (static_cast<size_t>(link) * 2) + direction;
+            const uint64_t txBytes =
+                offset < state->intervalTxBytes.size() ? state->intervalTxBytes[offset] : 0;
+            const double txBps =
+                intervalSeconds > 0.0
+                    ? (static_cast<double>(txBytes) * 8.0) / intervalSeconds
+                    : 0.0;
+            const double utilization =
+                capacityBps > 0.0 ? txBps / capacityBps : 0.0;
+            if (offset < state->directionalLoad.size())
+            {
+                // Keep the raw percentage for audit, but remove packet-boundary
+                // overshoot from the normalized evidence supplied to policies.
+                state->directionalLoad[offset] = std::clamp(utilization, 0.0, 1.0);
+            }
+
+            uint32_t queuePackets = 0;
+            double queueOccupancy = 0.0;
+            Ptr<PointToPointNetDevice> p2p =
+                DynamicCast<PointToPointNetDevice>(devices.Get(direction));
+            if (p2p && p2p->GetQueue())
+            {
+                Ptr<Queue<Packet>> queue = p2p->GetQueue();
+                queuePackets = queue->GetNPackets();
+                const uint32_t capacity = queue->GetMaxSize().GetValue();
+                if (capacity > 0)
+                {
+                    queueOccupancy =
+                        static_cast<double>(queuePackets) / static_cast<double>(capacity);
+                }
+            }
+
+            const double utilizationPct = utilization * 100.0;
+            const double queueOccupancyPct = queueOccupancy * 100.0;
+            if (txBytes > 0 || queuePackets > 0)
+            {
+                state->activeUtilizationPct.push_back(utilizationPct);
+                state->activeQueueOccupancyPct.push_back(queueOccupancyPct);
+            }
+            std::cout << "link_timeseries," << now << "," << link << "," << direction << ","
+                      << txBps / 1e6 << "," << utilizationPct << "," << queueOccupancyPct
+                      << "," << queuePackets << "\n";
+            if (offset < state->intervalTxBytes.size())
+            {
+                state->intervalTxBytes[offset] = 0;
+            }
+        }
+    }
+
+    if (intervalSeconds > 0.0 && now + intervalSeconds <= stopTime + 1e-9)
+    {
+        Simulator::Schedule(Seconds(intervalSeconds),
+                            &SampleLinkTelemetry,
+                            topology,
+                            intervalSeconds,
+                            stopTime,
+                            state);
+    }
+}
+
+void
+PrintLinkTelemetrySummary(const LinkTelemetryState& state)
+{
+    const double maxUtilization =
+        state.activeUtilizationPct.empty()
+            ? 0.0
+            : *std::max_element(state.activeUtilizationPct.begin(),
+                                state.activeUtilizationPct.end());
+    const double maxQueue =
+        state.activeQueueOccupancyPct.empty()
+            ? 0.0
+            : *std::max_element(state.activeQueueOccupancyPct.begin(),
+                                state.activeQueueOccupancyPct.end());
+    std::cout << "link_telemetry_rounds," << state.samples << "\n";
+    std::cout << "link_active_direction_samples," << state.activeUtilizationPct.size() << "\n";
+    std::cout << "link_p99_active_utilization_pct,"
+              << VectorPercentile(state.activeUtilizationPct, 0.99) << "\n";
+    std::cout << "link_max_utilization_pct," << maxUtilization << "\n";
+    std::cout << "link_p99_active_queue_occupancy_pct,"
+              << VectorPercentile(state.activeQueueOccupancyPct, 0.99) << "\n";
+    std::cout << "link_max_queue_occupancy_pct," << maxQueue << "\n";
 }
 
 double
@@ -113,6 +249,16 @@ ApplyRouteMetrics(const NodeContainer& nodes,
                   int32_t congestedLink,
                   double penalty)
 {
+    auto pathDelayMs = [&topology](const InformationCandidateRouteRecord& record) {
+        double delayMs = 0.0;
+        for (uint32_t i = 0; i + 1 < record.pathNodes.size(); ++i)
+        {
+            const int64_t link = topology.FindLink(record.pathNodes[i], record.pathNodes[i + 1]);
+            NS_ABORT_MSG_IF(link < 0, "Candidate path contains a non-adjacent node pair");
+            delayMs += topology.GetLink(static_cast<uint32_t>(link)).delay.GetSeconds() * 1000.0;
+        }
+        return delayMs;
+    };
     for (const auto& record : routes.records)
     {
         Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
@@ -127,7 +273,7 @@ ApplyRouteMetrics(const NodeContainer& nodes,
             queueMetric = penalty;
             loadMetric = penalty;
         }
-        routing->SetRouteMetrics(record.routeIndex, record.pathCost, queueMetric, loadMetric);
+        routing->SetRouteMetrics(record.routeIndex, pathDelayMs(record), queueMetric, loadMetric);
     }
 }
 
@@ -268,6 +414,7 @@ struct TrafficConfig
     uint8_t tos{0};
     std::string tosProfile{"single"};
     uint32_t latencyEvery{2};
+    double latencyStartOffset{0.0};
     double latencyDeadlineMs{0.0};
     double bulkDeadlineMs{0.0};
     // Phase-2 E6: when non-empty, override the per-flow start time / size /
@@ -343,6 +490,12 @@ struct ControlConfig
     // policies can react to congestion they themselves induce.
     double sensedQueueScale{0.0};
     double sensedQueueThreshold{0.3};
+    // Directional utilization sampled from PointToPointNetDevice PhyTxBegin bytes.
+    // The per-route load signal is the maximum sampled utilization in the path's
+    // forwarding direction; reverse traffic must not contaminate it.
+    const std::vector<double>* sensedDirectionalLoad{nullptr};
+    double sensedLoadScale{0.0};
+    double sensedLoadThreshold{0.05};
     // Revision C1: adaptive write budget. When enabled, the per-second budget
     // starts at updateBudgetPerSec and is steered each window by two shadow
     // signals: budget pressure (proposals suppressed only by the budget) grows
@@ -1247,6 +1400,22 @@ RefreshRouteMetrics(const NodeContainer& nodes,
 
     ++state->counters.refreshRounds;
     auto activeCongestions = ActiveCongestionsAt(now, config);
+    std::vector<uint32_t> activeLoadLinks;
+    if (config.sensedDirectionalLoad && config.sensedLoadScale > 0.0)
+    {
+        for (uint32_t link = 0; link < topology.GetNLinks(); ++link)
+        {
+            const size_t forward = static_cast<size_t>(link) * 2;
+            const size_t reverse = forward + 1;
+            if ((forward < config.sensedDirectionalLoad->size() &&
+                 (*config.sensedDirectionalLoad)[forward] >= config.sensedLoadThreshold) ||
+                (reverse < config.sensedDirectionalLoad->size() &&
+                 (*config.sensedDirectionalLoad)[reverse] >= config.sensedLoadThreshold))
+            {
+                activeLoadLinks.push_back(link);
+            }
+        }
+    }
 
     // Revision R3: merge sensed real-queue occupancy into the evidence set so
     // adaptive policies react to self-induced congestion, not only injected
@@ -1462,6 +1631,32 @@ RefreshRouteMetrics(const NodeContainer& nodes,
                 if (noisy > targetLoad)  { targetLoad  = noisy; }
             }
         }
+        if (config.sensedDirectionalLoad && config.sensedLoadScale > 0.0)
+        {
+            for (uint32_t pathNode = 0; pathNode + 1 < record.pathNodes.size(); ++pathNode)
+            {
+                const uint32_t from = record.pathNodes[pathNode];
+                const uint32_t to = record.pathNodes[pathNode + 1];
+                const int64_t pathLink =
+                    topology.FindLink(from, to);
+                if (pathLink < 0)
+                {
+                    continue;
+                }
+                const auto& link = topology.GetLink(static_cast<uint32_t>(pathLink));
+                const uint32_t direction = link.from == from && link.to == to ? 0 : 1;
+                const size_t offset = (static_cast<size_t>(pathLink) * 2) + direction;
+                if (offset >= config.sensedDirectionalLoad->size())
+                {
+                    continue;
+                }
+                const double load = (*config.sensedDirectionalLoad)[offset];
+                if (load >= config.sensedLoadThreshold)
+                {
+                    targetLoad = std::max(targetLoad, load * config.sensedLoadScale);
+                }
+            }
+        }
 
         // Shadow routers run the same evidence-to-action computation but do
         // not mutate forwarding state. Keeping RouteMetricState unchanged is
@@ -1555,7 +1750,16 @@ RefreshRouteMetrics(const NodeContainer& nodes,
             continue;
         }
 
-        routing->SetRouteMetrics(record.routeIndex, record.pathCost, nextQueue, nextLoad);
+        double pathDelayMs = 0.0;
+        for (uint32_t pathNode = 0; pathNode + 1 < record.pathNodes.size(); ++pathNode)
+        {
+            const int64_t pathLink =
+                topology.FindLink(record.pathNodes[pathNode], record.pathNodes[pathNode + 1]);
+            NS_ABORT_MSG_IF(pathLink < 0, "Candidate path contains a non-adjacent node pair");
+            pathDelayMs +=
+                topology.GetLink(static_cast<uint32_t>(pathLink)).delay.GetSeconds() * 1000.0;
+        }
+        routing->SetRouteMetrics(record.routeIndex, pathDelayMs, nextQueue, nextLoad);
         ++state->counters.metricWrites;
         ++state->budgetWindowWrites;
         if (delta > 0.0)
@@ -1608,6 +1812,9 @@ RefreshRouteMetrics(const NodeContainer& nodes,
     {
         degradedLinkSet.push_back(active.first);
     }
+    degradedLinkSet.insert(degradedLinkSet.end(),
+                           activeLoadLinks.begin(),
+                           activeLoadLinks.end());
     RouteShare bestShare =
         ComputeRouteShare(topology, routes, state->bestRouteByPair, degradedLinkSet);
     RouteShare priorityShare =
@@ -1671,6 +1878,10 @@ InstallTraffic(const InformationTopologyBuildResult& build,
                               ? config.scheduleTos[i]
                               : FlowTos(config, i);
         std::string trafficClass = FlowTrafficClass(config, i, flowTos);
+        if (!useSchedule && trafficClass == "latency")
+        {
+            flowStart += config.latencyStartOffset;
+        }
         double deadlineMs = FlowDeadlineMs(config, trafficClass);
 
         if (config.appMode == "udp-client")
@@ -1837,6 +2048,7 @@ struct ClassAccumulator
     uint32_t deadlineEligible{0};
     uint32_t deadlineMisses{0};
     double delaySeconds{0.0};
+    double completionRatioSum{0.0};
     std::vector<double> fctMs;
     std::map<FlowId, FlowMonitor::FlowStats> stats;
 };
@@ -1865,6 +2077,7 @@ void
 AccumulateFlowClass(ClassAccumulator* accumulator,
                     const FlowAccumulator& flow,
                     double fctMs,
+                    double completionRatio,
                     bool deadlineEligible,
                     bool deadlineMiss)
 {
@@ -1875,6 +2088,7 @@ AccumulateFlowClass(ClassAccumulator* accumulator,
     accumulator->rxPackets += flow.rxPackets;
     accumulator->lostPackets += flow.lostPackets;
     accumulator->delaySeconds += flow.delaySeconds;
+    accumulator->completionRatioSum += completionRatio;
     accumulator->fctMs.push_back(fctMs);
     for (const auto& statEntry : flow.stats)
     {
@@ -2038,6 +2252,7 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
         AccumulateFlowClass(&classStats[flow.trafficClass],
                             flowAccumulator,
                             fctMs,
+                            completionRatio,
                             deadlineEligible,
                             deadlineMiss);
         if (rolloutCohort != "not_applicable")
@@ -2045,6 +2260,7 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
             AccumulateFlowClass(&classStats[rolloutCohort],
                                 flowAccumulator,
                                 fctMs,
+                                completionRatio,
                                 deadlineEligible,
                                 deadlineMiss);
         }
@@ -2073,7 +2289,7 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
               << "," << deadlineMissPct << "\n";
 
     std::cout << "class_summary,traffic_class,flows,tx_packets,rx_packets,lost_packets,rx_mbps,"
-              << "delivery_ratio,mean_delay_ms,p95_delay_ms,p99_delay_ms,mean_fct_ms,"
+              << "delivery_ratio,mean_completion_ratio,mean_delay_ms,p95_delay_ms,p99_delay_ms,mean_fct_ms,"
               << "p99_fct_ms,deadline_miss_pct\n";
     for (auto& entry : classStats)
     {
@@ -2084,6 +2300,11 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
             classAccumulator.txPackets > 0
                 ? static_cast<double>(classAccumulator.rxPackets) /
                       static_cast<double>(classAccumulator.txPackets)
+                : 0.0;
+        double classMeanCompletion =
+            classAccumulator.flows > 0
+                ? classAccumulator.completionRatioSum /
+                      static_cast<double>(classAccumulator.flows)
                 : 0.0;
         double classMeanDelayMs =
             classAccumulator.rxPackets > 0
@@ -2112,7 +2333,8 @@ PrintFlowSummary(Ptr<FlowMonitor> monitor,
         std::cout << "class_summary," << trafficClass << "," << classAccumulator.flows << ","
                   << classAccumulator.txPackets << "," << classAccumulator.rxPackets << ","
                   << classAccumulator.lostPackets << "," << classRxMbps << "," << classDeliveryRatio
-                  << "," << classMeanDelayMs << "," << classP95DelayMs << "," << classP99DelayMs
+                  << "," << classMeanCompletion << "," << classMeanDelayMs << ","
+                  << classP95DelayMs << "," << classP99DelayMs
                   << "," << classMeanFctMs << "," << classP99FctMs << ","
                   << classDeadlineMissPct << "\n";
     }
@@ -2125,6 +2347,8 @@ main(int argc, char* argv[])
 {
     std::string topologyType = "tiered";
     std::string graphmlFile;
+    std::string defaultLinkRate = "10Gbps";
+    double defaultLinkDelayMs = 1.0;
     uint32_t ringNodes = 12;
     uint32_t gridRows = 5;
     uint32_t gridColumns = 5;
@@ -2133,6 +2357,8 @@ main(int argc, char* argv[])
     uint32_t edgesPerMetro = 2;
     uint32_t kPaths = 4;
     uint32_t selectorMode = InformationRoutingProtocol::TRAFFIC_AWARE;
+    std::string programProfile;
+    bool runtimeActionCounters = false;
     double costWeight = 1.0;
     double delayWeight = 1.0;
     double queueWeight = 1.0;
@@ -2169,6 +2395,7 @@ main(int argc, char* argv[])
     uint32_t tos = 0;
     std::string tosProfile = "single";
     uint32_t latencyEvery = 2;
+    double latencyStartOffset = 0.0;
     double latencyDeadlineMs = 0.0;
     double bulkDeadlineMs = 0.0;
     int32_t bottleneckLink = -1;
@@ -2178,6 +2405,10 @@ main(int argc, char* argv[])
     // on the InformationTopology builder. Bottleneck takes precedence if
     // both are set on the same link.
     std::string linkRateMapSpec;
+    // Comma-separated `linkIdx:delayMs` overrides. Stable route cost remains
+    // unchanged: this exposes a genuine propagation-delay/load tradeoff to
+    // class-aware programs without weakening destination progress.
+    std::string linkDelayMapSpec;
     // Phase-2 E6: path to a CSV with columns `t_start_s,src,dst,bytes,tos`
     // (header row required). When non-empty, MakeTrafficPairs is bypassed
     // and each CSV row becomes one TCP-bulk flow with per-row start time,
@@ -2207,6 +2438,9 @@ main(int argc, char* argv[])
     bool metricFeedbackDecay = false;
     double sensedQueueScale = 0.0;
     double sensedQueueThreshold = 0.3;
+    double linkTelemetryInterval = 0.0;
+    double sensedLoadScale = 0.0;
+    double sensedLoadThreshold = 0.05;
     bool adaptiveBudget = false;
     double budgetMin = 25.0;
     double budgetMax = 1600.0;
@@ -2223,6 +2457,12 @@ main(int argc, char* argv[])
     CommandLine cmd(__FILE__);
     cmd.AddValue("topology", "ring, grid, tiered, or graphml", topologyType);
     cmd.AddValue("graphml", "GraphML file used when topology=graphml", graphmlFile);
+    cmd.AddValue("defaultLinkRate",
+                 "Default synthetic-topology link rate and GraphML fallback rate",
+                 defaultLinkRate);
+    cmd.AddValue("defaultLinkDelayMs",
+                 "Default synthetic-topology link delay and GraphML fallback delay",
+                 defaultLinkDelayMs);
     cmd.AddValue("ringNodes", "Number of nodes for ring topology", ringNodes);
     cmd.AddValue("gridRows", "Rows for grid topology", gridRows);
     cmd.AddValue("gridColumns", "Columns for grid topology", gridColumns);
@@ -2231,6 +2471,13 @@ main(int argc, char* argv[])
     cmd.AddValue("edgesPerMetro", "Edge nodes per metro for tiered topology", edgesPerMetro);
     cmd.AddValue("kPaths", "Maximum candidate paths per source-destination pair", kPaths);
     cmd.AddValue("selectorMode", "0=static cost, 1=round robin, 2=traffic-aware", selectorMode);
+    cmd.AddValue("programProfile",
+                 "Named portable program profile: ir-deg, ir-load, or ir-class; empty uses "
+                 "the explicit selector weights",
+                 programProfile);
+    cmd.AddValue("runtimeActionCounters",
+                 "Emit aggregate portable-runtime decision and action counters",
+                 runtimeActionCounters);
     cmd.AddValue("costWeight", "Default-class stable-cost selector weight", costWeight);
     cmd.AddValue("delayWeight", "Default-class delay selector weight", delayWeight);
     cmd.AddValue("queueWeight", "Default-class queue selector weight", queueWeight);
@@ -2267,6 +2514,9 @@ main(int argc, char* argv[])
     cmd.AddValue("tos", "IPv4 TOS byte applied to generated flows", tos);
     cmd.AddValue("tosProfile", "single, latency-bulk, or bulk-low", tosProfile);
     cmd.AddValue("latencyEvery", "Every Nth flow is latency class for tosProfile", latencyEvery);
+    cmd.AddValue("latencyStartOffset",
+                 "Seconds to delay latency-class arrivals after their sampled base start",
+                 latencyStartOffset);
     cmd.AddValue("latencyDeadlineMs", "FCT deadline for latency-class flows; 0 disables", latencyDeadlineMs);
     cmd.AddValue("bulkDeadlineMs", "FCT deadline for bulk-class flows; 0 disables", bulkDeadlineMs);
     cmd.AddValue("bottleneckLink", "Link index to reduce before simulation; -1 disables", bottleneckLink);
@@ -2276,6 +2526,10 @@ main(int argc, char* argv[])
                  "Example: 0:40Mbps,5:40Mbps,12:100Mbps. "
                  "Applied before bottleneckLink (which still wins on conflicts).",
                  linkRateMapSpec);
+    cmd.AddValue("linkDelayMap",
+                 "Comma-separated linkIdx:delayMs overrides applied before topology install. "
+                 "Example: 0:1,5:2.5,12:8.",
+                 linkDelayMapSpec);
     cmd.AddValue("flowSchedule",
                  "Phase-2 E6: CSV path with t_start_s,src,dst,bytes,tos. "
                  "Each row installs one TCP-bulk flow; bypasses MakeTrafficPairs.",
@@ -2309,6 +2563,15 @@ main(int argc, char* argv[])
     cmd.AddValue("sensedQueueThreshold",
                  "Queue occupancy fraction below which no sensed evidence is emitted",
                  sensedQueueThreshold);
+    cmd.AddValue("linkTelemetryInterval",
+                 "Per-link utilization/queue sampling interval in seconds; 0 disables",
+                 linkTelemetryInterval);
+    cmd.AddValue("sensedLoadScale",
+                 "Load-metric penalty per unit sampled link utilization; 0 disables",
+                 sensedLoadScale);
+    cmd.AddValue("sensedLoadThreshold",
+                 "Link utilization fraction below which no load evidence is emitted",
+                 sensedLoadThreshold);
     cmd.AddValue("adaptiveBudget",
                  "Steer the write budget from budget-pressure and revert-ratio signals",
                  adaptiveBudget);
@@ -2331,10 +2594,19 @@ main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(tos > 255 || priorityTos > 255, "tos and priorityTos must fit in one byte");
+    NS_ABORT_MSG_IF(defaultLinkDelayMs < 0.0, "defaultLinkDelayMs must be non-negative");
+    NS_ABORT_MSG_IF(latencyStartOffset < 0.0, "latencyStartOffset must be non-negative");
+    NS_ABORT_MSG_IF(!programProfile.empty() &&
+                        selectorMode != InformationRoutingProtocol::TRAFFIC_AWARE,
+                    "programProfile requires selectorMode=2 (traffic-aware)");
     NS_ABORT_MSG_IF(appMode != "onoff" && appMode != "udp-client" && appMode != "tcp-bulk",
                     "appMode must be onoff, udp-client, or tcp-bulk");
     NS_ABORT_MSG_IF(!rolloutScheduleSpec.empty() && refreshInterval <= 0.0,
                     "rolloutSchedule requires refreshInterval > 0");
+    NS_ABORT_MSG_IF(sensedLoadScale > 0.0 && linkTelemetryInterval <= 0.0,
+                    "sensedLoadScale requires linkTelemetryInterval > 0");
+    NS_ABORT_MSG_IF(sensedLoadScale > 0.0 && refreshInterval <= 0.0,
+                    "sensedLoadScale requires refreshInterval > 0");
     if (appMode == "tcp-bulk" || transport == "tcp")
     {
         std::string tcpTypeId = tcpVariant.rfind("ns3::", 0) == 0 ? tcpVariant : "ns3::" + tcpVariant;
@@ -2346,19 +2618,34 @@ main(int argc, char* argv[])
     if (topologyType == "graphml")
     {
         NS_ABORT_MSG_IF(graphmlFile.empty(), "topology=graphml requires --graphml=<file>");
-        topology = InformationTopology::ReadGraphml(graphmlFile);
+        topology = InformationTopology::ReadGraphml(
+            graphmlFile,
+            MilliSeconds(defaultLinkDelayMs),
+            DataRate(defaultLinkRate));
     }
     else if (topologyType == "ring")
     {
-        topology = InformationTopology::CreateRing(ringNodes);
+        topology = InformationTopology::CreateRing(
+            ringNodes,
+            MilliSeconds(defaultLinkDelayMs),
+            DataRate(defaultLinkRate));
     }
     else if (topologyType == "grid")
     {
-        topology = InformationTopology::CreateGrid(gridRows, gridColumns);
+        topology = InformationTopology::CreateGrid(
+            gridRows,
+            gridColumns,
+            MilliSeconds(defaultLinkDelayMs),
+            DataRate(defaultLinkRate));
     }
     else
     {
-        topology = InformationTopology::CreateTieredBackbone(regions, metrosPerRegion, edgesPerMetro);
+        topology = InformationTopology::CreateTieredBackbone(
+            regions,
+            metrosPerRegion,
+            edgesPerMetro,
+            MilliSeconds(defaultLinkDelayMs),
+            DataRate(defaultLinkRate));
     }
 
     // Phase-2 E2: apply per-link rate overrides before the bottleneck knob,
@@ -2390,6 +2677,35 @@ main(int argc, char* argv[])
         std::cout << "link_rate_map_overrides," << applied << "\n";
     }
 
+    if (!linkDelayMapSpec.empty())
+    {
+        std::string spec = linkDelayMapSpec;
+        std::string::size_type pos = 0;
+        uint32_t applied = 0;
+        while (pos < spec.size())
+        {
+            std::string::size_type comma = spec.find(',', pos);
+            std::string entry = spec.substr(pos, comma == std::string::npos
+                                                       ? std::string::npos
+                                                       : comma - pos);
+            std::string::size_type colon = entry.find(':');
+            NS_ABORT_MSG_IF(colon == std::string::npos,
+                            "linkDelayMap entry missing ':' separator: " << entry);
+            uint32_t idx = static_cast<uint32_t>(std::stoul(entry.substr(0, colon)));
+            double delayMs = std::stod(entry.substr(colon + 1));
+            NS_ABORT_MSG_IF(delayMs < 0.0,
+                            "linkDelayMap delay must be non-negative: " << entry);
+            topology.SetLinkDelay(idx, MilliSeconds(delayMs));
+            ++applied;
+            if (comma == std::string::npos)
+            {
+                break;
+            }
+            pos = comma + 1;
+        }
+        std::cout << "link_delay_map_overrides," << applied << "\n";
+    }
+
     if (bottleneckLink >= 0)
     {
         topology.SetLinkDataRate(static_cast<uint32_t>(bottleneckLink), DataRate(bottleneckRate));
@@ -2417,9 +2733,47 @@ main(int argc, char* argv[])
     InternetStackHelper stack;
     stack.SetRoutingHelper(routingHelper);
     stack.Install(nodes);
+    if (!programProfile.empty() || runtimeActionCounters)
+    {
+        for (uint32_t node = 0; node < nodes.GetN(); ++node)
+        {
+            Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+            if (!programProfile.empty())
+            {
+                routing->SetProgramProfile(programProfile);
+            }
+            routing->EnableActionCounters(runtimeActionCounters);
+        }
+    }
 
     InformationTopologyBuildResult build = topologyHelper.Install(topology, nodes);
     g_linkDevices = &build.devices;
+    LinkTelemetryState linkTelemetry;
+    if (linkTelemetryInterval > 0.0)
+    {
+        linkTelemetry.intervalTxBytes.assign(
+            static_cast<size_t>(topology.GetNLinks()) * 2,
+            0);
+        linkTelemetry.directionalLoad.assign(
+            static_cast<size_t>(topology.GetNLinks()) * 2,
+            0.0);
+        for (uint32_t link = 0; link < build.devices.size(); ++link)
+        {
+            const auto& devices = build.devices[link];
+            for (uint32_t direction = 0; direction < std::min<uint32_t>(2, devices.GetN());
+                 ++direction)
+            {
+                Ptr<PointToPointNetDevice> p2p =
+                    DynamicCast<PointToPointNetDevice>(devices.Get(direction));
+                NS_ABORT_MSG_IF(!p2p, "link telemetry requires point-to-point devices");
+                const bool connected = p2p->TraceConnectWithoutContext(
+                    "PhyTxBegin",
+                    MakeBoundCallback(&RecordLinkTx, &linkTelemetry, link, direction));
+                NS_ABORT_MSG_IF(!connected,
+                                "failed to connect PointToPointNetDevice PhyTxBegin");
+            }
+        }
+    }
     InformationCandidateRouteSet routeSet = topologyHelper.InstallCandidateRouteSet(topology, build, kPaths);
     ApplyRouteMetrics(nodes, topology, routeSet, -1, 0.0);
 
@@ -2588,6 +2942,10 @@ main(int argc, char* argv[])
         controlConfig.metricFeedbackDecay = metricFeedbackDecay;
         controlConfig.sensedQueueScale = sensedQueueScale;
         controlConfig.sensedQueueThreshold = sensedQueueThreshold;
+        controlConfig.sensedDirectionalLoad =
+            linkTelemetryInterval > 0.0 ? &linkTelemetry.directionalLoad : nullptr;
+        controlConfig.sensedLoadScale = sensedLoadScale;
+        controlConfig.sensedLoadThreshold = sensedLoadThreshold;
         controlConfig.adaptiveBudget = adaptiveBudget;
         controlConfig.budgetMin = budgetMin;
         controlConfig.budgetMax = budgetMax;
@@ -2726,12 +3084,25 @@ main(int argc, char* argv[])
     trafficConfig.tos = static_cast<uint8_t>(tos);
     trafficConfig.tosProfile = tosProfile;
     trafficConfig.latencyEvery = latencyEvery;
+    trafficConfig.latencyStartOffset = latencyStartOffset;
     trafficConfig.latencyDeadlineMs = latencyDeadlineMs;
     trafficConfig.bulkDeadlineMs = bulkDeadlineMs;
     trafficConfig.scheduleStartSec = scheduleStarts;
     trafficConfig.scheduleBytes = scheduleBytes;
     trafficConfig.scheduleTos = scheduleTos;
     TrafficInstallResult traffic = InstallTraffic(build, pairs, trafficConfig);
+    if (linkTelemetryInterval > 0.0 &&
+        startTime + linkTelemetryInterval <= stopTime + 1e-9)
+    {
+        std::cout << "link_timeseries,time_s,link,direction,tx_mbps,utilization_pct,"
+                  << "queue_occupancy_pct,queue_packets\n";
+        Simulator::Schedule(Seconds(startTime + linkTelemetryInterval),
+                            &SampleLinkTelemetry,
+                            topology,
+                            linkTelemetryInterval,
+                            stopTime,
+                            &linkTelemetry);
+    }
 
     std::map<std::string, uint64_t> lastRxBytesByClass;
     double lastSampleTime = startTime;
@@ -2778,6 +3149,10 @@ main(int argc, char* argv[])
     Simulator::Stop(Seconds(simStopTime));
     Simulator::Run();
 
+    if (linkTelemetryInterval > 0.0)
+    {
+        PrintLinkTelemetrySummary(linkTelemetry);
+    }
     std::cout << "topology_nodes," << topology.GetNNodes() << "\n";
     std::cout << "topology_links," << topology.GetNLinks() << "\n";
     std::cout << "candidate_routes," << routeSet.GetNInstalled() << "\n";
@@ -2821,7 +3196,12 @@ main(int argc, char* argv[])
     }
     std::cout << "app_mode," << appMode << "\n";
     std::cout << "traffic_mode," << trafficMode << "\n";
+    std::cout << "program_profile,"
+              << (programProfile.empty() ? "explicit-weights" : programProfile) << "\n";
+    std::cout << "selection_granularity,"
+              << GetInformationRouting(nodes.Get(0))->GetSelectionGranularityName() << "\n";
     std::cout << "flows," << pairs.size() << "\n";
+    std::cout << "latency_start_offset_s," << latencyStartOffset << "\n";
     std::cout << "control_refresh_rounds," << controlState.counters.refreshRounds << "\n";
     std::cout << "control_candidate_evaluations," << controlState.counters.candidateEvaluations
               << "\n";
@@ -2833,6 +3213,67 @@ main(int argc, char* argv[])
     std::cout << "control_best_route_changes," << controlState.counters.bestRouteChanges << "\n";
     std::cout << "control_priority_best_route_changes,"
               << controlState.counters.priorityBestRouteChanges << "\n";
+    std::cout << "route_selection,source,target,route_index,next_hop,selected,priority_selected\n";
+    for (const auto& record : routeSet.records)
+    {
+        const InformationRoute route =
+            GetInformationRouting(nodes.Get(record.source))->GetRoute(record.routeIndex);
+        const auto priority = route.selectedByTos.find(static_cast<uint8_t>(priorityTos));
+        const uint64_t prioritySelected =
+            priority == route.selectedByTos.end() ? 0 : priority->second;
+        if (route.selected > 0)
+        {
+            std::cout << "route_selection," << record.source << "," << record.target << ","
+                      << record.routeIndex << "," << record.nextHopAddress << ","
+                      << route.selected << "," << prioritySelected << "\n";
+        }
+    }
+    InformationRoutingFlowBindingCounters bindingTotal;
+    for (uint32_t node = 0; node < nodes.GetN(); ++node)
+    {
+        const auto counters = GetInformationRouting(nodes.Get(node))->GetFlowBindingCounters();
+        bindingTotal.hits += counters.hits;
+        bindingTotal.misses += counters.misses;
+        bindingTotal.expired += counters.expired;
+        bindingTotal.invalidated += counters.invalidated;
+    }
+    std::cout << "flow_binding_hits," << bindingTotal.hits << "\n";
+    std::cout << "flow_binding_misses," << bindingTotal.misses << "\n";
+    std::cout << "flow_binding_expired," << bindingTotal.expired << "\n";
+    std::cout << "flow_binding_invalidated," << bindingTotal.invalidated << "\n";
+    if (runtimeActionCounters)
+    {
+        InformationRoutingActionCounters total;
+        for (uint32_t node = 0; node < nodes.GetN(); ++node)
+        {
+            InformationRoutingActionCounters nodeCounters =
+                GetInformationRouting(nodes.Get(node))->DrainActionCounters();
+            total.invocations += nodeCounters.invocations;
+            total.selectedDecisions += nodeCounters.selectedDecisions;
+            total.fallbackDecisions += nodeCounters.fallbackDecisions;
+            total.noCandidateDecisions += nodeCounters.noCandidateDecisions;
+            total.proposedActions += nodeCounters.proposedActions;
+            total.admittedActions += nodeCounters.admittedActions;
+            total.suppressedDuplicate += nodeCounters.suppressedDuplicate;
+            total.suppressedDwell += nodeCounters.suppressedDwell;
+            total.suppressedBudget += nodeCounters.suppressedBudget;
+            total.backendAttempted += nodeCounters.backendAttempted;
+            total.backendApplied += nodeCounters.backendApplied;
+            total.backendRejected += nodeCounters.backendRejected;
+        }
+        std::cout << "runtime_invocations," << total.invocations << "\n";
+        std::cout << "runtime_selected_decisions," << total.selectedDecisions << "\n";
+        std::cout << "runtime_fallback_decisions," << total.fallbackDecisions << "\n";
+        std::cout << "runtime_no_candidate_decisions," << total.noCandidateDecisions << "\n";
+        std::cout << "runtime_proposed_actions," << total.proposedActions << "\n";
+        std::cout << "runtime_admitted_actions," << total.admittedActions << "\n";
+        std::cout << "runtime_suppressed_duplicate," << total.suppressedDuplicate << "\n";
+        std::cout << "runtime_suppressed_dwell," << total.suppressedDwell << "\n";
+        std::cout << "runtime_suppressed_budget," << total.suppressedBudget << "\n";
+        std::cout << "runtime_backend_attempted," << total.backendAttempted << "\n";
+        std::cout << "runtime_backend_applied," << total.backendApplied << "\n";
+        std::cout << "runtime_backend_rejected," << total.backendRejected << "\n";
+    }
 
     // Phase-2 E7: drain wall-clock LookupRoute samples from every node and
     // emit p50/p99/mean nanoseconds for the overhead microbenchmark.

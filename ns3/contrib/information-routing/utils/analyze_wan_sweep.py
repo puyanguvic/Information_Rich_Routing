@@ -110,6 +110,7 @@ CLASS_METRICS = [
     "flows",
     "rx_mbps",
     "delivery_ratio",
+    "mean_completion_ratio",
     "mean_delay_ms",
     "p95_delay_ms",
     "p99_delay_ms",

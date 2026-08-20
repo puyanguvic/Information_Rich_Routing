@@ -1,0 +1,110 @@
+{
+  "common": {
+    "topology": "grid",
+    "gridRows": 4,
+    "gridColumns": 4,
+    "defaultLinkRate": "100Mbps",
+    "kPaths": 2,
+    "packetSize": 1000,
+    "startTime": 1.0,
+    "stopTime": 8.0,
+    "simStopTime": 9.0,
+    "sampleInterval": 0.1,
+    "linkTelemetryInterval": 0.02,
+    "refreshInterval": 0.05,
+    "refreshStartTime": 1.05,
+    "refreshStopTime": 8.0,
+    "sensedLoadScale": 1.0,
+    "sensedLoadThreshold": 0.02,
+    "sensedQueueScale": 1.0,
+    "sensedQueueThreshold": 0.02,
+    "dampingAlpha": 0.5,
+    "hysteresisThreshold": 0.01,
+    "runtimeActionCounters": true
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "protocols": [
+    {
+      "name": "static",
+      "args": {
+        "selectorMode": 0
+      }
+    },
+    {
+      "name": "ir-load",
+      "args": {
+        "selectorMode": 2,
+        "programProfile": "ir-load"
+      }
+    },
+    {
+      "name": "ir-class",
+      "args": {
+        "selectorMode": 2,
+        "programProfile": "ir-class"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "function_load_all_bulk",
+      "args": {
+        "traffic": "bipartite",
+        "appMode": "onoff",
+        "transport": "udp",
+        "flowCount": 24,
+        "flowRate": "6Mbps",
+        "startJitter": 0.2,
+        "tosProfile": "single"
+      }
+    },
+    {
+      "name": "function_class_mixed",
+      "args": {
+        "traffic": "hotspot",
+        "hotspotNode": 0,
+        "defaultLinkDelayMs": 10.0,
+        "linkDelayMap": "0:1,1:1,2:1,4:1,8:1,15:1",
+        "appMode": "tcp-bulk",
+        "transport": "tcp",
+        "tcpVariant": "TcpCubic",
+        "tcpSack": true,
+        "bulkSendSize": 1448,
+        "flowCount": 12,
+        "miceEvery": 4,
+        "miceMaxBytes": 50000,
+        "elephantMaxBytes": 5000000,
+        "tosProfile": "latency-bulk",
+        "latencyEvery": 4,
+        "latencyStartOffset": 0.5,
+        "latencyDeadlineMs": 150.0,
+        "bulkDeadlineMs": 8000.0,
+        "startJitter": 0.5,
+        "stopTime": 12.0,
+        "simStopTime": 13.0,
+        "refreshStopTime": 12.0
+      }
+    }
+  ]
+}

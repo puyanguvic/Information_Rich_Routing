@@ -1,6 +1,7 @@
 #ifndef INFORMATION_ROUTING_H
 #define INFORMATION_ROUTING_H
 
+#include "ns3/information-routing-runtime-adapter.h"
 #include "ns3/ipv4-address.h"
 #include "ns3/ipv4-header.h"
 #include "ns3/ipv4-interface-address.h"
@@ -16,6 +17,7 @@
 
 #include <cstdint>
 #include <map>
+#include <string>
 #include <vector>
 
 /**
@@ -52,6 +54,15 @@ struct InformationRoute
         selectedByTos;    //!< Selection count split by observed IPv4 TOS byte.
     bool eligible;        //!< True when the candidate is in the current active view.
     bool connected;       //!< True when the entry was learned from an interface address.
+};
+
+/** Audit counters for flow-granular candidate binding. */
+struct InformationRoutingFlowBindingCounters
+{
+    uint64_t hits{0};         //!< Packets that reused an existing legal binding.
+    uint64_t misses{0};       //!< Transport flows admitted to a new binding.
+    uint64_t expired{0};      //!< Bindings replaced after their idle timeout.
+    uint64_t invalidated{0};  //!< Bindings cleared by candidate-authority changes.
 };
 
 /**
@@ -99,6 +110,30 @@ class InformationRoutingProtocol : public Ipv4RoutingProtocol
 
     /// Drain and return the accumulated per-lookup nanosecond samples.
     std::vector<uint64_t> DrainLookupNanos();
+
+    /** Configure one of the shared named programs: ir-deg, ir-load, or ir-class. */
+    void SetProgramProfile(const std::string& name);
+
+    /** Return the packet/flow granularity declared by the active program. */
+    std::string GetSelectionGranularityName() const;
+
+    /** Return flow-binding audit counters without resetting them. */
+    InformationRoutingFlowBindingCounters GetFlowBindingCounters() const;
+
+    /// Enable allocation-free decision, admission, and backend counters.
+    void EnableActionCounters(bool enabled);
+
+    /// Drain aggregate action counters without changing routing state.
+    InformationRoutingActionCounters DrainActionCounters();
+
+    /// Enable canonical portable-runtime records for every selection invocation.
+    void EnableActionLog(bool enabled);
+
+    /// Drain canonical runtime records without changing routing state.
+    std::vector<ir::ActionRecord> DrainActionLog();
+
+    /// Return the generation of the current native candidate authority.
+    uint64_t GetCandidateGeneration() const;
 
     /**
      * Get the current selector mode.
@@ -287,12 +322,44 @@ class InformationRoutingProtocol : public Ipv4RoutingProtocol
     void DoDispose() override;
 
   private:
-    Ptr<Ipv4Route> LookupRoute(Ipv4Address destination, Ptr<NetDevice> oif, uint8_t tos);
+    struct FlowKey
+    {
+        uint32_t source{0};
+        uint32_t destination{0};
+        uint8_t protocol{0};
+        uint8_t trafficClass{0};
+        uint16_t sourcePort{0};
+        uint16_t destinationPort{0};
+
+        bool operator<(const FlowKey& other) const;
+    };
+
+    struct FlowBinding
+    {
+        uint32_t routeIndex{0};
+        uint64_t generation{0};
+        double lastSeenSeconds{0.0};
+    };
+
+    Ptr<Ipv4Route> LookupRoute(Ptr<const Packet> packet,
+                               const Ipv4Header& header,
+                               Ptr<NetDevice> oif);
+    bool BuildFlowKey(Ptr<const Packet> packet,
+                      const Ipv4Header& header,
+                      FlowKey* key) const;
     int64_t SelectRouteIndex(Ipv4Address destination,
                              Ptr<NetDevice> oif,
                              bool advance,
                              uint8_t tos);
     int64_t SelectRouteIndexConst(Ipv4Address destination, Ptr<NetDevice> oif, uint8_t tos) const;
+    std::vector<uint32_t> CollectCandidateIndices(Ipv4Address destination,
+                                                  Ptr<NetDevice> oif) const;
+    int64_t SelectPortable(Ipv4Address destination,
+                           const std::vector<uint32_t>& candidateIndices,
+                           bool advance,
+                           uint8_t tos) const;
+    ir::TrafficAwareConfig GetTrafficAwareConfig(bool classAware) const;
+    ir::EvidenceSnapshot GetRouteEvidence(uint32_t index, double nowSeconds) const;
     bool IsRouteMatch(const InformationRoute& route,
                       Ipv4Address destination,
                       Ptr<NetDevice> oif,
@@ -304,15 +371,23 @@ class InformationRoutingProtocol : public Ipv4RoutingProtocol
                   uint32_t interface) const;
     void AddConnectedRoute(uint32_t interface, Ipv4InterfaceAddress address);
     void RemoveConnectedRoute(uint32_t interface, Ipv4InterfaceAddress address);
+    void AdvanceCandidateGeneration();
 
     Ptr<Ipv4> m_ipv4;                         //!< IPv4 object this protocol is attached to.
     std::vector<InformationRoute> m_routes;   //!< Installed route candidates.
-    std::map<uint64_t, uint64_t> m_roundRobinCursor; //!< Per-prefix round-robin cursors.
+    uint64_t m_candidateGeneration;           //!< Version of native candidate membership.
     uint32_t m_selectorMode;                  //!< Selector mode.
+    ir::SelectionGranularity m_selectionGranularity; //!< Packet or flow selection boundary.
+    double m_flowBindingIdleTimeoutSeconds;   //!< Idle lifetime for a flow binding.
+    std::map<FlowKey, FlowBinding> m_flowBindings; //!< Adapter-local stable flow bindings.
+    InformationRoutingFlowBindingCounters m_flowBindingCounters; //!< Binding audit counters.
     double m_costWeight;                      //!< Weight for static cost.
     double m_delayWeight;                     //!< Weight for delay signal.
     double m_queueWeight;                     //!< Weight for queue signal.
     double m_loadWeight;                      //!< Weight for load signal.
+    std::string m_policyName;                 //!< Portable policy/program name.
+    double m_minEvidenceConfidence;           //!< Minimum usable evidence confidence.
+    bool m_requireFreshEvidence;               //!< Require usable traffic evidence.
     bool m_tosAware;                          //!< Use traffic-class-specific weights.
     uint8_t m_priorityTos;                    //!< TOS value treated as latency-sensitive.
     double m_priorityCostWeight;              //!< Priority-class weight for static cost.
@@ -321,6 +396,12 @@ class InformationRoutingProtocol : public Ipv4RoutingProtocol
     double m_priorityLoadWeight;              //!< Priority-class weight for load signal.
     bool m_profileSelector;                   //!< Wall-clock instrument LookupRoute.
     std::vector<uint64_t> m_lookupNanos;      //!< Per-lookup ns samples (E7).
+    bool m_actionLogEnabled;                  //!< Emit canonical portable-runtime records.
+    mutable uint64_t m_actionSequence;        //!< Monotonic action-record sequence.
+    mutable std::vector<ir::ActionRecord> m_actionLog; //!< Optional canonical action log.
+    ir::StaticCostPolicy m_staticCostPolicy;  //!< Portable stable-cost policy.
+    mutable ir::RoundRobinPolicy m_roundRobinPolicy; //!< Portable scope-local rotation policy.
+    mutable InformationRoutingRuntimeAdapter m_runtimeAdapter; //!< Shared ns-3 runtime binding.
 };
 
 } // namespace ns3

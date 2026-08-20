@@ -41,6 +41,56 @@ ln -s /path/to/Information_Rich_Routing/ns3/contrib/information-routing \
   /path/to/ns-3-dev/contrib/information-routing
 ```
 
+Before the workload smoke test, run the cross-platform semantic gate from the
+artifact root:
+
+```bash
+NS3_ROOT=/path/to/ns-3-dev make ns3-conformance
+```
+
+A passing run reports exact agreement for all 14 canonical epochs.
+
+Run the bounded native-cost smoke benchmark:
+
+```bash
+NS3_ROOT=/path/to/ns-3-dev \
+ITERATIONS=1000 WARMUP=100 STATE_REPLICAS=2000 \
+OUTPUT=/tmp/ir-runtime-smoke.csv \
+make runtime-benchmark
+```
+
+With residency enabled, the CSV contains 28 rows: six latency boundaries and
+one state-residency row for each of `K={1,2,4,8}`. The executable checks sample,
+decision, evidence-record, action-accounting, and native route-generation
+invariants before writing results. For paper measurements, configure ns-3 with
+the optimized build profile, set `CPU_CORE` to pin the process, keep the
+defaults of 1,000,000 measured invocations, 100,000 warm-up invocations, and
+20,000 retained state replicas, and repeat the run. The sidecar `.meta.txt`
+records the commits, benchmark-source hash, host, compiler, CPU topology and
+governor, load/frequency observations, CPU binding, and exact command.
+
+Collect and aggregate the formal M2 trials with one command:
+
+```bash
+NS3_ROOT=/path/to/ns-3-dev CPU_CORE=<isolated-core> \
+TRIALS=5 RUN_ID=runtime-m2-main \
+make runtime-benchmark-trials
+```
+
+This produces raw per-trial CSV/metadata pairs, `summary.csv`,
+`trial_manifest.csv`, and `figures/eval_framework_cost_m2.{pdf,svg,png}`. The
+aggregator computes Student-t 95% confidence intervals across independent
+process trials and refuses to combine mismatched commits, kernels, compilers,
+CPU bindings, or benchmark parameters. Use `ALLOW_UNPINNED=1` only to exercise
+the pipeline as a smoke test.
+
+`heap_bytes_per_scope` is the primary state metric on glibc systems: it measures
+the change in in-use arena plus malloc-backed mmap bytes. `rss_delta_bytes`
+remains a `/proc/self/statm` diagnostic, not an allocator-exact object size;
+page reuse can make small RSS increments misleading.
+`portable_snapshot_bytes_lower_bound` is a deterministic structural reference.
+Smoke values verify the harness only.
+
 Run a small sweep:
 
 ```bash
@@ -71,6 +121,32 @@ The parallel launcher is:
 ```bash
 ns3/contrib/information-routing/utils/run_eval_parallel.sh
 ```
+
+The function-breadth matrix is deliberately separate from the main IR-Deg
+sweeps because it uses each program's native outputs and invariants. Run it
+with:
+
+```bash
+python3 ns3/contrib/information-routing/utils/run_wan_sweep.py \
+  --config ns3/contrib/information-routing/utils/wan_sweep_eval_program_functions.json \
+  --ns3-root /path/to/ns-3-dev \
+  --output-dir /path/to/results/program-functions
+
+python3 ns3/contrib/information-routing/utils/analyze_program_functions.py \
+  --input-dir /path/to/results/program-functions
+
+python3 scripts/plot_program_functions.py \
+  --analysis-dir /path/to/results/program-functions-program-analysis \
+  --output-base /path/to/paper/figs/generated/eval_program_functions_f4 \
+  --table-output /path/to/paper/tables/generated/program_function_guardrails.tex
+```
+
+The second command requires all 20 configured seeds and checks profile
+bindings, safety counters, the all-bulk negative control, mixed-class route
+separation, and both aggregate and paired Student-t confidence intervals. The
+third command refuses incomplete/non-passing matrices and emits PDF/SVG/PNG
+plus the LaTeX guardrail table. Add `--only-seed 1` to the
+runner and `--allow-incomplete` to the analyzer only for a mechanism smoke.
 
 See `docs/NS3_SETUP.md` for a complete command sequence.
 

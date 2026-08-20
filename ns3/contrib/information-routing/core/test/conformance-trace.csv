@@ -1,0 +1,29 @@
+epoch,time_s,scope,generation,traffic_class,program,candidate_id,stable_cost,eligible,delay,queue,load,confidence,timestamp_s,expires_after_s,backend_mode,backend_generation,expected_status,expected_candidate,expected_score,expected_policy,expected_reason,expected_action_status,expected_action_generation,expected_attempted,expected_applied,expected_backend_detail
+0,0.0,198.51.100.0/24,10,0,ir-deg,101,1.0,1,0.0,20.0,0.0,1.0,0.0,30.0,apply,10,selected,102,2.0,ir-deg,minimum information-rich score,admitted,10,1,1,applied
+0,0.0,198.51.100.0/24,10,0,ir-deg,102,2.0,1,0.0,2.0,0.0,1.0,0.0,30.0,apply,10,selected,102,2.0,ir-deg,minimum information-rich score,admitted,10,1,1,applied
+1,0.01,198.51.100.0/24,10,0,ir-deg,101,1.0,1,0.0,1.0,0.0,1.0,0.01,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,suppressed-dwell,10,0,0,active-view dwell has not elapsed
+1,0.01,198.51.100.0/24,10,0,ir-deg,102,2.0,1,0.0,10.0,0.0,1.0,0.01,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,suppressed-dwell,10,0,0,active-view dwell has not elapsed
+2,0.10,198.51.100.0/24,10,0,ir-deg,101,1.0,1,0.0,1.0,0.0,1.0,0.10,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,admitted,10,1,1,applied
+2,0.10,198.51.100.0/24,10,0,ir-deg,102,2.0,1,0.0,10.0,0.0,1.0,0.10,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,admitted,10,1,1,applied
+3,0.20,198.51.100.0/24,10,0,ir-deg,101,1.0,1,0.0,1.0,0.0,1.0,0.20,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,suppressed-duplicate,10,0,0,active view already matches candidate and generation
+3,0.20,198.51.100.0/24,10,0,ir-deg,102,2.0,1,0.0,10.0,0.0,1.0,0.20,30.0,apply,10,selected,101,1.0,ir-deg,minimum information-rich score,suppressed-duplicate,10,0,0,active view already matches candidate and generation
+4,1.0,198.51.100.0/24,11,0,ir-deg,101,1.0,0,nan,nan,nan,1.0,0.0,0.1,apply,11,fallback,102,4.0,static-cost,ir-deg unavailable: no usable traffic evidence; minimum stable-cost fallback,admitted,11,1,1,applied
+4,1.0,198.51.100.0/24,11,0,ir-deg,102,4.0,1,nan,nan,nan,0.1,1.0,30.0,apply,11,fallback,102,4.0,static-cost,ir-deg unavailable: no usable traffic evidence; minimum stable-cost fallback,admitted,11,1,1,applied
+5,2.0,198.51.100.0/24,12,0,ir-deg,101,1.0,0,0.0,1.0,0.0,1.0,2.0,30.0,apply,12,no-candidate,,,ir-deg,candidate interface returned no eligible candidate,no-action,,0,0,no route action
+5,2.0,198.51.100.0/24,12,0,ir-deg,102,2.0,0,0.0,2.0,0.0,1.0,2.0,30.0,apply,12,no-candidate,,,ir-deg,candidate interface returned no eligible candidate,no-action,,0,0,no route action
+6,3.0,198.51.100.0/24,13,0,ir-deg,101,1.0,1,0.0,20.0,0.0,1.0,3.0,30.0,apply,14,selected,102,1.0,ir-deg,minimum information-rich score,admitted,13,1,0,stale candidate generation
+6,3.0,198.51.100.0/24,13,0,ir-deg,102,2.0,1,0.0,1.0,0.0,1.0,3.0,30.0,apply,14,selected,102,1.0,ir-deg,minimum information-rich score,admitted,13,1,0,stale candidate generation
+7,3.1,198.51.100.0/24,13,0,ir-deg,101,1.0,1,0.0,20.0,0.0,1.0,3.1,30.0,apply,13,selected,102,1.0,ir-deg,minimum information-rich score,admitted,13,1,1,applied
+7,3.1,198.51.100.0/24,13,0,ir-deg,102,2.0,1,0.0,1.0,0.0,1.0,3.1,30.0,apply,13,selected,102,1.0,ir-deg,minimum information-rich score,admitted,13,1,1,applied
+8,3.2,198.51.100.0/24,14,0,ir-deg,101,1.0,1,0.0,1.0,0.0,1.0,3.2,30.0,reject,14,selected,101,1.0,ir-deg,minimum information-rich score,admitted,14,1,0,backend rejected action
+8,3.2,198.51.100.0/24,14,0,ir-deg,102,2.0,1,0.0,10.0,0.0,1.0,3.2,30.0,reject,14,selected,101,1.0,ir-deg,minimum information-rich score,admitted,14,1,0,backend rejected action
+9,3.3,198.51.100.0/24,14,0,ir-deg,101,1.0,1,0.0,1.0,0.0,1.0,3.3,30.0,apply,14,selected,101,1.0,ir-deg,minimum information-rich score,admitted,14,1,1,applied
+9,3.3,198.51.100.0/24,14,0,ir-deg,102,2.0,1,0.0,10.0,0.0,1.0,3.3,30.0,apply,14,selected,101,1.0,ir-deg,minimum information-rich score,admitted,14,1,1,applied
+100,0.0,203.0.113.0/24,20,0,ir-load,201,1.0,1,0.0,0.0,8.0,1.0,0.0,30.0,apply,20,selected,202,1.0,ir-load,minimum information-rich score,admitted,20,1,1,applied
+100,0.0,203.0.113.0/24,20,0,ir-load,202,5.0,1,0.0,100.0,1.0,1.0,0.0,30.0,apply,20,selected,202,1.0,ir-load,minimum information-rich score,admitted,20,1,1,applied
+200,0.0,192.0.2.0/24,30,0,ir-class,301,1.0,1,1.0,1.0,8.0,1.0,0.0,30.0,apply,30,selected,302,1.0,ir-class,minimum information-rich score,admitted,30,1,1,applied
+200,0.0,192.0.2.0/24,30,0,ir-class,302,1.0,1,4.0,8.0,1.0,1.0,0.0,30.0,apply,30,selected,302,1.0,ir-class,minimum information-rich score,admitted,30,1,1,applied
+201,0.0,192.0.2.0/24,30,184,ir-class,301,1.0,1,1.0,1.0,8.0,1.0,0.0,30.0,apply,30,selected,301,5.0,ir-class,minimum information-rich score,admitted,30,1,1,applied
+201,0.0,192.0.2.0/24,30,184,ir-class,302,1.0,1,4.0,8.0,1.0,1.0,0.0,30.0,apply,30,selected,301,5.0,ir-class,minimum information-rich score,admitted,30,1,1,applied
+202,0.1,192.0.2.0/24,30,0,ir-class,301,1.0,1,1.0,1.0,8.0,1.0,0.1,30.0,apply,30,selected,302,1.0,ir-class,minimum information-rich score,suppressed-duplicate,30,0,0,active view already matches candidate and generation
+202,0.1,192.0.2.0/24,30,0,ir-class,302,1.0,1,4.0,8.0,1.0,1.0,0.1,30.0,apply,30,selected,302,1.0,ir-class,minimum information-rich score,suppressed-duplicate,30,0,0,active view already matches candidate and generation

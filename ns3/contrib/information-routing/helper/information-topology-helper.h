@@ -37,6 +37,7 @@ struct InformationTopologyBuildResult
     std::vector<NetDeviceContainer> devices;         //!< P2P devices per link.
     std::vector<Ipv4InterfaceContainer> interfaces;  //!< IPv4 interfaces per link.
     std::vector<Ipv4Address> primaryAddresses;       //!< Primary address per topology node.
+    std::vector<std::vector<Ipv4Address>> nodeAddresses; //!< All routable addresses per node.
     std::map<std::pair<uint32_t, uint32_t>, InformationTopologyAdjacency>
         adjacency;  //!< Directed adjacency lookup.
 

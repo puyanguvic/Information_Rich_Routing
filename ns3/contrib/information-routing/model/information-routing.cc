@@ -10,13 +10,20 @@
 #include "ns3/object.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
+#include "ns3/socket.h"
+#include "ns3/tcp-header.h"
 #include "ns3/uinteger.h"
+#include "ns3/udp-header.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <ostream>
+#include <sstream>
+#include <string>
+#include <tuple>
 #include <vector>
 
 namespace ns3
@@ -93,24 +100,44 @@ InformationRoutingProtocol::GetTypeId()
                           "Wall-clock instrument every LookupRoute call (Phase-2 E7 overhead bench).",
                           BooleanValue(false),
                           MakeBooleanAccessor(&InformationRoutingProtocol::m_profileSelector),
+                          MakeBooleanChecker())
+            .AddAttribute("FlowBindingIdleTimeout",
+                          "Seconds of inactivity after which a flow-granular binding may be "
+                          "reselected.",
+                          DoubleValue(30.0),
+                          MakeDoubleAccessor(
+                              &InformationRoutingProtocol::m_flowBindingIdleTimeoutSeconds),
+                          MakeDoubleChecker<double>(0.0))
+            .AddAttribute("LogPortableActions",
+                          "Record canonical decision, admission, and backend outcomes.",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&InformationRoutingProtocol::m_actionLogEnabled),
                           MakeBooleanChecker());
     return tid;
 }
 
 InformationRoutingProtocol::InformationRoutingProtocol()
     : m_ipv4(nullptr),
+      m_candidateGeneration(0),
       m_selectorMode(STATIC_COST),
+      m_selectionGranularity(ir::SelectionGranularity::PACKET),
+      m_flowBindingIdleTimeoutSeconds(30.0),
       m_costWeight(1.0),
       m_delayWeight(1.0),
       m_queueWeight(1.0),
       m_loadWeight(1.0),
+      m_policyName("weighted-traffic-aware"),
+      m_minEvidenceConfidence(0.0),
+      m_requireFreshEvidence(false),
       m_tosAware(false),
       m_priorityTos(0xb8),
       m_priorityCostWeight(1.0),
       m_priorityDelayWeight(2.0),
       m_priorityQueueWeight(2.0),
       m_priorityLoadWeight(0.5),
-      m_profileSelector(false)
+      m_profileSelector(false),
+      m_actionLogEnabled(false),
+      m_actionSequence(0)
 {
     NS_LOG_FUNCTION(this);
 }
@@ -131,6 +158,77 @@ InformationRoutingProtocol::DrainLookupNanos()
     std::vector<uint64_t> out;
     out.swap(m_lookupNanos);
     return out;
+}
+
+void
+InformationRoutingProtocol::SetProgramProfile(const std::string& name)
+{
+    const ir::ProgramProfile profile = ir::programs::ByName(name);
+    m_selectorMode = TRAFFIC_AWARE;
+    m_selectionGranularity = profile.granularity;
+    m_flowBindings.clear();
+    m_policyName = profile.selection.policyName;
+    m_costWeight = profile.selection.defaultWeights.stableCost;
+    m_delayWeight = profile.selection.defaultWeights.delay;
+    m_queueWeight = profile.selection.defaultWeights.queue;
+    m_loadWeight = profile.selection.defaultWeights.load;
+    m_minEvidenceConfidence = profile.selection.minEvidenceConfidence;
+    m_requireFreshEvidence = profile.selection.requireFreshEvidence;
+    m_tosAware = profile.selection.classAware;
+    m_priorityTos = static_cast<uint8_t>(profile.selection.priorityTrafficClass);
+    m_priorityCostWeight = profile.selection.priorityWeights.stableCost;
+    m_priorityDelayWeight = profile.selection.priorityWeights.delay;
+    m_priorityQueueWeight = profile.selection.priorityWeights.queue;
+    m_priorityLoadWeight = profile.selection.priorityWeights.load;
+    m_runtimeAdapter.ConfigureUpdatePolicy(profile.updates);
+}
+
+std::string
+InformationRoutingProtocol::GetSelectionGranularityName() const
+{
+    return ir::SelectionGranularityName(m_selectionGranularity);
+}
+
+InformationRoutingFlowBindingCounters
+InformationRoutingProtocol::GetFlowBindingCounters() const
+{
+    return m_flowBindingCounters;
+}
+
+void
+InformationRoutingProtocol::EnableActionCounters(bool enabled)
+{
+    m_runtimeAdapter.EnableCounters(enabled);
+}
+
+InformationRoutingActionCounters
+InformationRoutingProtocol::DrainActionCounters()
+{
+    return m_runtimeAdapter.DrainCounters();
+}
+
+void
+InformationRoutingProtocol::EnableActionLog(bool enabled)
+{
+    m_actionLogEnabled = enabled;
+    if (enabled)
+    {
+        m_actionLog.reserve(1u << 12);
+    }
+}
+
+std::vector<ir::ActionRecord>
+InformationRoutingProtocol::DrainActionLog()
+{
+    std::vector<ir::ActionRecord> out;
+    out.swap(m_actionLog);
+    return out;
+}
+
+uint64_t
+InformationRoutingProtocol::GetCandidateGeneration() const
+{
+    return m_candidateGeneration;
 }
 
 InformationRoutingProtocol::~InformationRoutingProtocol()
@@ -176,6 +274,7 @@ InformationRoutingProtocol::AddNetworkRouteTo(Ipv4Address network,
     route.connected = nextHop == Ipv4Address::GetZero();
 
     m_routes.push_back(route);
+    AdvanceCandidateGeneration();
 }
 
 void
@@ -223,7 +322,12 @@ void
 InformationRoutingProtocol::SetRouteEligible(uint32_t index, bool eligible)
 {
     NS_ABORT_MSG_IF(index >= m_routes.size(), "Route index out of range");
+    if (m_routes[index].eligible == eligible)
+    {
+        return;
+    }
     m_routes[index].eligible = eligible;
+    AdvanceCandidateGeneration();
 }
 
 bool
@@ -252,8 +356,9 @@ void
 InformationRoutingProtocol::RemoveRoute(uint32_t index)
 {
     NS_ABORT_MSG_IF(index >= m_routes.size(), "Route index out of range");
-    m_roundRobinCursor.erase(GetRouteKey(m_routes[index]));
+    m_roundRobinPolicy.ResetScope(std::to_string(GetRouteKey(m_routes[index])));
     m_routes.erase(m_routes.begin() + index);
+    AdvanceCandidateGeneration();
 }
 
 uint32_t
@@ -274,8 +379,9 @@ InformationRoutingProtocol::GetRouteScore(uint32_t index) const
 {
     NS_ABORT_MSG_IF(index >= m_routes.size(), "Route index out of range");
     const auto& route = m_routes[index];
-    return (m_costWeight * route.staticCost) + (m_delayWeight * route.delayMetric) +
-           (m_queueWeight * route.queueMetric) + (m_loadWeight * route.loadMetric);
+    const ir::Candidate candidate{index, route.staticCost, route.eligible};
+    const ir::WeightedTrafficAwarePolicy policy(GetTrafficAwareConfig(false));
+    return policy.Score(candidate, GetRouteEvidence(index, 0.0), {0, 0.0});
 }
 
 double
@@ -287,10 +393,9 @@ InformationRoutingProtocol::GetRouteScore(uint32_t index, uint8_t tos) const
         return GetRouteScore(index);
     }
     const auto& route = m_routes[index];
-    return (m_priorityCostWeight * route.staticCost) +
-           (m_priorityDelayWeight * route.delayMetric) +
-           (m_priorityQueueWeight * route.queueMetric) +
-           (m_priorityLoadWeight * route.loadMetric);
+    const ir::Candidate candidate{index, route.staticCost, route.eligible};
+    const ir::WeightedTrafficAwarePolicy policy(GetTrafficAwareConfig(true));
+    return policy.Score(candidate, GetRouteEvidence(index, 0.0), {tos, 0.0});
 }
 
 int64_t
@@ -303,6 +408,75 @@ int64_t
 InformationRoutingProtocol::GetBestRouteIndex(Ipv4Address destination, uint8_t tos) const
 {
     return SelectRouteIndexConst(destination, nullptr, tos);
+}
+
+bool
+InformationRoutingProtocol::FlowKey::operator<(const FlowKey& other) const
+{
+    return std::tie(source,
+                    destination,
+                    protocol,
+                    trafficClass,
+                    sourcePort,
+                    destinationPort) <
+           std::tie(other.source,
+                    other.destination,
+                    other.protocol,
+                    other.trafficClass,
+                    other.sourcePort,
+                    other.destinationPort);
+}
+
+bool
+InformationRoutingProtocol::BuildFlowKey(Ptr<const Packet> packet,
+                                         const Ipv4Header& header,
+                                         FlowKey* key) const
+{
+    if (!packet || !key || header.GetFragmentOffset() != 0)
+    {
+        return false;
+    }
+
+    uint16_t sourcePort = 0;
+    uint16_t destinationPort = 0;
+    if (header.GetProtocol() == 6)
+    {
+        TcpHeader tcp;
+        if (packet->PeekHeader(tcp) == 0)
+        {
+            return false;
+        }
+        sourcePort = tcp.GetSourcePort();
+        destinationPort = tcp.GetDestinationPort();
+    }
+    else if (header.GetProtocol() == 17)
+    {
+        UdpHeader udp;
+        if (packet->PeekHeader(udp) == 0)
+        {
+            return false;
+        }
+        sourcePort = udp.GetSourcePort();
+        destinationPort = udp.GetDestinationPort();
+    }
+    else
+    {
+        return false;
+    }
+
+    key->source = header.GetSource().Get();
+    key->destination = header.GetDestination().Get();
+    key->protocol = header.GetProtocol();
+    uint8_t trafficClass = header.GetTos();
+    SocketIpTosTag tosTag;
+    if (packet->PeekPacketTag(tosTag))
+    {
+        trafficClass = tosTag.GetTos();
+    }
+    key->trafficClass = trafficClass & 0xfc;
+    key->sourcePort = sourcePort;
+    key->destinationPort = destinationPort;
+    return true;
 }
 
 Ptr<Ipv4Route>
@@ -319,7 +493,7 @@ InformationRoutingProtocol::RouteOutput(Ptr<Packet> p,
         NS_LOG_LOGIC("Multicast routing is not implemented by InformationRoutingProtocol");
     }
 
-    Ptr<Ipv4Route> route = LookupRoute(header.GetDestination(), oif, header.GetTos());
+    Ptr<Ipv4Route> route = LookupRoute(p, header, oif);
     sockerr = route ? Socket::ERROR_NOTERROR : Socket::ERROR_NOROUTETOHOST;
     return route;
 }
@@ -359,7 +533,7 @@ InformationRoutingProtocol::RouteInput(Ptr<const Packet> p,
         return true;
     }
 
-    Ptr<Ipv4Route> route = LookupRoute(header.GetDestination(), nullptr, header.GetTos());
+    Ptr<Ipv4Route> route = LookupRoute(p, header, nullptr);
     if (route)
     {
         ucb(route, p, header);
@@ -387,17 +561,23 @@ void
 InformationRoutingProtocol::NotifyInterfaceDown(uint32_t interface)
 {
     NS_LOG_FUNCTION(this << interface);
+    bool removed = false;
     for (auto it = m_routes.begin(); it != m_routes.end();)
     {
         if (it->interface == interface)
         {
-            m_roundRobinCursor.erase(GetRouteKey(*it));
+            m_roundRobinPolicy.ResetScope(std::to_string(GetRouteKey(*it)));
             it = m_routes.erase(it);
+            removed = true;
         }
         else
         {
             ++it;
         }
+    }
+    if (removed)
+    {
+        AdvanceCandidateGeneration();
     }
 }
 
@@ -486,20 +666,86 @@ InformationRoutingProtocol::DoDispose()
 {
     NS_LOG_FUNCTION(this);
     m_routes.clear();
-    m_roundRobinCursor.clear();
+    m_flowBindings.clear();
+    m_flowBindingCounters = {};
+    m_roundRobinPolicy.Reset();
+    m_runtimeAdapter.Reset();
     m_ipv4 = nullptr;
     Ipv4RoutingProtocol::DoDispose();
 }
 
 Ptr<Ipv4Route>
-InformationRoutingProtocol::LookupRoute(Ipv4Address destination, Ptr<NetDevice> oif, uint8_t tos)
+InformationRoutingProtocol::LookupRoute(Ptr<const Packet> packet,
+                                        const Ipv4Header& header,
+                                        Ptr<NetDevice> oif)
 {
+    const Ipv4Address destination = header.GetDestination();
+    uint8_t tos = header.GetTos();
+    SocketIpTosTag tosTag;
+    if (packet && packet->PeekPacketTag(tosTag))
+    {
+        tos = tosTag.GetTos();
+    }
+    tos &= 0xfc;
     std::chrono::steady_clock::time_point t0;
     if (m_profileSelector)
     {
         t0 = std::chrono::steady_clock::now();
     }
-    int64_t selected = SelectRouteIndex(destination, oif, true, tos);
+    int64_t selected = -1;
+    FlowKey flowKey;
+    const bool flowGranular =
+        m_selectionGranularity == ir::SelectionGranularity::FLOW &&
+        BuildFlowKey(packet, header, &flowKey);
+    const double nowSeconds = Simulator::Now().GetSeconds();
+    if (flowGranular)
+    {
+        auto binding = m_flowBindings.find(flowKey);
+        if (binding != m_flowBindings.end())
+        {
+            const bool expired =
+                m_flowBindingIdleTimeoutSeconds > 0.0 &&
+                nowSeconds - binding->second.lastSeenSeconds > m_flowBindingIdleTimeoutSeconds;
+            const auto candidates = CollectCandidateIndices(destination, oif);
+            const bool legal =
+                binding->second.generation == m_candidateGeneration &&
+                std::find(candidates.begin(), candidates.end(), binding->second.routeIndex) !=
+                    candidates.end() &&
+                binding->second.routeIndex < m_routes.size() &&
+                m_routes[binding->second.routeIndex].eligible;
+            if (!expired && legal)
+            {
+                selected = binding->second.routeIndex;
+                binding->second.lastSeenSeconds = nowSeconds;
+                ++m_flowBindingCounters.hits;
+            }
+            else
+            {
+                if (expired)
+                {
+                    ++m_flowBindingCounters.expired;
+                }
+                else
+                {
+                    ++m_flowBindingCounters.invalidated;
+                }
+                m_flowBindings.erase(binding);
+            }
+        }
+    }
+    if (selected < 0)
+    {
+        selected = SelectRouteIndex(destination, oif, true, tos);
+        if (flowGranular && selected >= 0)
+        {
+            m_flowBindings[flowKey] = {
+                static_cast<uint32_t>(selected),
+                m_candidateGeneration,
+                nowSeconds,
+            };
+            ++m_flowBindingCounters.misses;
+        }
+    }
     if (m_profileSelector)
     {
         auto t1 = std::chrono::steady_clock::now();
@@ -530,65 +776,20 @@ InformationRoutingProtocol::SelectRouteIndex(Ipv4Address destination,
                                              bool advance,
                                              uint8_t tos)
 {
-    std::vector<uint32_t> candidates;
-    uint32_t bestPrefixLength = 0;
-    bool found = false;
-
-    for (uint32_t i = 0; i < m_routes.size(); ++i)
-    {
-        uint32_t prefixLength = 0;
-        if (!IsRouteMatch(m_routes[i], destination, oif, &prefixLength))
-        {
-            continue;
-        }
-        if (!found || prefixLength > bestPrefixLength)
-        {
-            candidates.clear();
-            bestPrefixLength = prefixLength;
-            found = true;
-        }
-        if (prefixLength == bestPrefixLength)
-        {
-            candidates.push_back(i);
-        }
-    }
-
-    if (candidates.empty())
-    {
-        return -1;
-    }
-
-    if (m_selectorMode == ROUND_ROBIN)
-    {
-        uint64_t key = GetRouteKey(m_routes[candidates.front()]);
-        uint64_t cursor = 0;
-        auto cursorIt = m_roundRobinCursor.find(key);
-        if (cursorIt != m_roundRobinCursor.end())
-        {
-            cursor = cursorIt->second;
-        }
-        uint32_t selected = candidates[cursor % candidates.size()];
-        if (advance)
-        {
-            m_roundRobinCursor[key] = cursor + 1;
-        }
-        return selected;
-    }
-
-    auto compare = [this, tos](uint32_t left, uint32_t right) {
-        if (m_selectorMode == TRAFFIC_AWARE)
-        {
-            return GetRouteScore(left, tos) < GetRouteScore(right, tos);
-        }
-        return m_routes[left].staticCost < m_routes[right].staticCost;
-    };
-    return *std::min_element(candidates.begin(), candidates.end(), compare);
+    return SelectPortable(destination, CollectCandidateIndices(destination, oif), advance, tos);
 }
 
 int64_t
 InformationRoutingProtocol::SelectRouteIndexConst(Ipv4Address destination,
                                                   Ptr<NetDevice> oif,
                                                   uint8_t tos) const
+{
+    return SelectPortable(destination, CollectCandidateIndices(destination, oif), false, tos);
+}
+
+std::vector<uint32_t>
+InformationRoutingProtocol::CollectCandidateIndices(Ipv4Address destination,
+                                                    Ptr<NetDevice> oif) const
 {
     std::vector<uint32_t> candidates;
     uint32_t bestPrefixLength = 0;
@@ -615,29 +816,111 @@ InformationRoutingProtocol::SelectRouteIndexConst(Ipv4Address destination,
 
     if (candidates.empty())
     {
-        return -1;
+        return candidates;
+    }
+    return candidates;
+}
+
+int64_t
+InformationRoutingProtocol::SelectPortable(Ipv4Address destination,
+                                           const std::vector<uint32_t>& candidateIndices,
+                                           bool advance,
+                                           uint8_t tos) const
+{
+    ir::CandidateSet candidates;
+    std::ostringstream destinationStream;
+    destinationStream << destination;
+    candidates.scope = candidateIndices.empty()
+                           ? destinationStream.str()
+                           : std::to_string(GetRouteKey(m_routes[candidateIndices.front()]));
+    candidates.generation = m_candidateGeneration;
+    ir::EvidenceSnapshot evidenceSnapshot;
+    const double nowSeconds = Simulator::Now().GetSeconds();
+    for (uint32_t index : candidateIndices)
+    {
+        const auto& route = m_routes[index];
+        candidates.entries.push_back({index, route.staticCost, route.eligible});
+        const auto routeEvidence = GetRouteEvidence(index, nowSeconds);
+        for (const auto& record : routeEvidence.Records())
+        {
+            evidenceSnapshot.Put(record);
+        }
     }
 
+    const ir::TrafficContext context{tos, nowSeconds};
+    const ir::RoutingRequest request{destinationStream.str(), tos};
+    m_runtimeAdapter.SetNativeAuthority(candidates);
+    ir::RuntimeOutcome outcome;
     if (m_selectorMode == ROUND_ROBIN)
     {
-        uint64_t key = GetRouteKey(m_routes[candidates.front()]);
-        uint64_t cursor = 0;
-        auto cursorIt = m_roundRobinCursor.find(key);
-        if (cursorIt != m_roundRobinCursor.end())
-        {
-            cursor = cursorIt->second;
-        }
-        return candidates[cursor % candidates.size()];
+        outcome = m_runtimeAdapter.ExecuteResolved(m_roundRobinPolicy,
+                                                   request,
+                                                   candidates,
+                                                   evidenceSnapshot,
+                                                   context,
+                                                   advance,
+                                                   advance);
     }
+    else if (m_selectorMode == TRAFFIC_AWARE)
+    {
+        const ir::WeightedTrafficAwarePolicy policy(GetTrafficAwareConfig(m_tosAware));
+        outcome = m_runtimeAdapter.ExecuteResolved(policy,
+                                                   request,
+                                                   candidates,
+                                                   evidenceSnapshot,
+                                                   context,
+                                                   advance,
+                                                   advance);
+    }
+    else
+    {
+        outcome = m_runtimeAdapter.ExecuteResolved(m_staticCostPolicy,
+                                                   request,
+                                                   candidates,
+                                                   evidenceSnapshot,
+                                                   context,
+                                                   advance,
+                                                   advance);
+    }
+    if (m_actionLogEnabled)
+    {
+        m_actionLog.push_back(
+            ir::MakeActionRecord(m_actionSequence++, request, candidates, context, outcome));
+    }
+    return outcome.decision.HasSelection() ? static_cast<int64_t>(outcome.decision.candidateId) : -1;
+}
 
-    auto compare = [this, tos](uint32_t left, uint32_t right) {
-        if (m_selectorMode == TRAFFIC_AWARE)
-        {
-            return GetRouteScore(left, tos) < GetRouteScore(right, tos);
-        }
-        return m_routes[left].staticCost < m_routes[right].staticCost;
-    };
-    return *std::min_element(candidates.begin(), candidates.end(), compare);
+ir::TrafficAwareConfig
+InformationRoutingProtocol::GetTrafficAwareConfig(bool classAware) const
+{
+    ir::TrafficAwareConfig config;
+    config.policyName = m_policyName;
+    config.defaultWeights = {m_costWeight, m_delayWeight, m_queueWeight, m_loadWeight};
+    config.classAware = classAware;
+    config.priorityTrafficClass = m_priorityTos;
+    config.priorityWeights = {m_priorityCostWeight,
+                              m_priorityDelayWeight,
+                              m_priorityQueueWeight,
+                              m_priorityLoadWeight};
+    config.minEvidenceConfidence = m_minEvidenceConfidence;
+    config.requireFreshEvidence = m_requireFreshEvidence;
+    return config;
+}
+
+ir::EvidenceSnapshot
+InformationRoutingProtocol::GetRouteEvidence(uint32_t index, double nowSeconds) const
+{
+    NS_ABORT_MSG_IF(index >= m_routes.size(), "Route index out of range");
+    const auto& route = m_routes[index];
+    const double lifetime = std::numeric_limits<double>::infinity();
+    ir::EvidenceSnapshot evidenceSnapshot;
+    evidenceSnapshot.Put(
+        {index, ir::evidence::DELAY, route.delayMetric, 1.0, nowSeconds, lifetime, "ns3"});
+    evidenceSnapshot.Put(
+        {index, ir::evidence::QUEUE, route.queueMetric, 1.0, nowSeconds, lifetime, "ns3"});
+    evidenceSnapshot.Put(
+        {index, ir::evidence::LOAD, route.loadMetric, 1.0, nowSeconds, lifetime, "ns3"});
+    return evidenceSnapshot;
 }
 
 bool
@@ -711,18 +994,32 @@ InformationRoutingProtocol::RemoveConnectedRoute(uint32_t interface, Ipv4Interfa
 {
     Ipv4Address network = address.GetLocal().CombineMask(address.GetMask());
     Ipv4Mask mask = address.GetMask();
+    bool removed = false;
     for (auto it = m_routes.begin(); it != m_routes.end();)
     {
         if (it->connected && it->interface == interface && it->network == network && it->mask == mask)
         {
-            m_roundRobinCursor.erase(GetRouteKey(*it));
+            m_roundRobinPolicy.ResetScope(std::to_string(GetRouteKey(*it)));
             it = m_routes.erase(it);
+            removed = true;
         }
         else
         {
             ++it;
         }
     }
+    if (removed)
+    {
+        AdvanceCandidateGeneration();
+    }
+}
+
+void
+InformationRoutingProtocol::AdvanceCandidateGeneration()
+{
+    m_flowBindingCounters.invalidated += m_flowBindings.size();
+    m_flowBindings.clear();
+    ++m_candidateGeneration;
 }
 
 } // namespace ns3
