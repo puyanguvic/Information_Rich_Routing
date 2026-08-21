@@ -83,6 +83,18 @@ Modes are `base`, `shadow`, `canary`, `active`, and `rollback`; coverage is a
 percentage of routers. `rolloutPlacement` selects `random`, `edge-first`,
 `core-first`, or `path-concentrated` activation order. A zero `rolloutSeed`
 reuses `RngRun`, preserving matched randomized placement across sweep cells.
+Only `random` consumes this seed. It uses 20 independent orders; each of the
+three topology-defined orders is a single deterministic point control. The
+generated config assigns those controls to different worker seeds for load
+balancing instead of treating repeated identical executions as independent
+samples. `run_wan_sweep.py` supports a scenario-local `seeds` list for this
+purpose.
+`rolloutHardLegacy=true` replaces every router outside the peak deployed set
+with ns-3's native `Ipv4StaticRouting` before packet execution. Those routers
+retain only the captured stable next hop and expose no
+`InformationRoutingProtocol` in their IPv4 forwarding stack. The paper rollout
+matrices enable this option; leaving it false is useful for soft-activation
+tests in which every router has the module but only a subset may act.
 
 Generate and run the smoke matrix with:
 
@@ -105,6 +117,14 @@ python3 contrib/information-routing/utils/analyze_rollout.py \
 The analyzer writes `coverage_benefit.csv` for network-wide, eligible-flow,
 and legacy-only comparisons, plus `transition_compatibility.csv` for structural
 violations, shadow proposals, and rollback restoration.
+
+For the paper matrix (20 base runs, 120 randomized runs, and 18 deterministic
+controls), the parallel runner merges the per-seed outputs and invokes both the
+generic and rollout-specific analyzers automatically:
+
+```bash
+CONFIGS=rollout bash contrib/information-routing/utils/run_eval_parallel.sh
+```
 
 ## Evaluation sweep
 

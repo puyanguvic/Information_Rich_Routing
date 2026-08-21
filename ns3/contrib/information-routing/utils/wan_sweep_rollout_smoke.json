@@ -24,7 +24,8 @@
     "dampingAlpha": 0.5,
     "hysteresisThreshold": 2.0,
     "dwellTimeMs": 50.0,
-    "updateBudgetPerSec": 200.0
+    "updateBudgetPerSec": 200.0,
+    "rolloutHardLegacy": true
   },
   "seeds": [
     1

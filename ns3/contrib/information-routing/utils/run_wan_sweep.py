@@ -358,6 +358,9 @@ def write_group_summary(path: Path, rows: list[dict[str, Any]]) -> None:
         "flow_binding_expired",
         "flow_binding_invalidated",
         "rollout_shadow_proposals",
+        "rollout_hard_legacy",
+        "rollout_legacy_routers",
+        "rollout_legacy_protocol_violations",
         "rollout_excluded_nonprogress_candidates",
         "rollout_rollback_failures",
         "rollout_rollback_restoration_ms",
@@ -484,10 +487,13 @@ def main() -> int:
     for scenario in scenarios:
         if not scenario_protocol_filter(scenario, selected_scenarios):
             continue
+        scenario_seeds = scenario.get("seeds", seeds)
+        if not isinstance(scenario_seeds, list) or not scenario_seeds:
+            raise ValueError(f"scenario {scenario['name']} must have a non-empty seed list")
         for protocol in protocols:
             if not scenario_protocol_filter(protocol, selected_protocols):
                 continue
-            for seed in seeds:
+            for seed in scenario_seeds:
                 if selected_seeds is not None and str(seed) not in selected_seeds:
                     continue
                 if args.max_runs and expanded >= args.max_runs:

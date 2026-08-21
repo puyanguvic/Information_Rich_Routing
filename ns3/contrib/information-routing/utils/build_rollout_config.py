@@ -9,7 +9,10 @@ The full matrix deliberately separates two questions:
 2. transition_* runs keep traffic running across base, shadow, canary, active,
    and rollback, so compatibility and restoration are measured directly.
 
-Full matrix: 25 scenarios x 1 policy x 20 matched seeds = 500 runs.
+The random order uses 20 independent placement seeds. Each topology-defined
+order is a deterministic point control and runs once, assigned to a different
+worker seed for load balancing. With 20 matched all-base runs, the full matrix
+contains 158 executions rather than pseudoreplicating deterministic controls.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ COMMON = {
     "hysteresisThreshold": 2.0,
     "dwellTimeMs": 50.0,
     "updateBudgetPerSec": 200.0,
+    "rolloutHardLegacy": True,
 }
 
 PROTOCOLS = [
@@ -75,16 +79,18 @@ def coverage_scenarios() -> list[dict[str, object]]:
     ]
     for placement in PLACEMENTS:
         label = placement.replace("-", "_")
-        for coverage in COVERAGES:
-            scenarios.append(
-                {
-                    "name": f"coverage_{label}_c{coverage}",
-                    "args": {
-                        "rolloutPlacement": placement,
-                        "rolloutSchedule": f"0:active:{coverage}",
-                    },
-                }
-            )
+        for coverage_index, coverage in enumerate(COVERAGES):
+            scenario: dict[str, object] = {
+                "name": f"coverage_{label}_c{coverage}",
+                "args": {
+                    "rolloutPlacement": placement,
+                    "rolloutSchedule": f"0:active:{coverage}",
+                },
+            }
+            if placement != "random":
+                placement_index = PLACEMENTS[1:].index(placement)
+                scenario["seeds"] = [SEEDS[1 + placement_index * len(COVERAGES) + coverage_index]]
+            scenarios.append(scenario)
     return scenarios
 
 
@@ -92,18 +98,19 @@ def transition_scenarios() -> list[dict[str, object]]:
     scenarios: list[dict[str, object]] = []
     for placement in PLACEMENTS:
         label = placement.replace("-", "_")
-        scenarios.append(
-            {
-                "name": f"transition_{label}_c25",
-                "args": {
-                    "rolloutPlacement": placement,
-                    "rolloutSchedule": (
-                        "0:base:0,5:shadow:25,8:canary:10,"
-                        "10:active:25,18:rollback:0"
-                    ),
-                },
-            }
-        )
+        scenario: dict[str, object] = {
+            "name": f"transition_{label}_c25",
+            "args": {
+                "rolloutPlacement": placement,
+                "rolloutSchedule": (
+                    "0:base:0,5:shadow:25,8:canary:10,"
+                    "10:active:25,18:rollback:0"
+                ),
+            },
+        }
+        if placement != "random":
+            scenario["seeds"] = [SEEDS[16 + PLACEMENTS[1:].index(placement)]]
+        scenarios.append(scenario)
     return scenarios
 
 
@@ -158,7 +165,7 @@ def main() -> None:
     }
     write_json(output_dir / "wan_sweep_eval_rollout.json", full)
     write_json(output_dir / "wan_sweep_rollout_smoke.json", smoke_config())
-    print("  full: 25 scenarios x 1 policy x 20 seeds = 500 runs")
+    print("  full: 20 base + 120 random + 18 deterministic = 158 runs")
     print("  smoke: 1 scenario x 1 policy x 1 seed = 1 run")
 
 

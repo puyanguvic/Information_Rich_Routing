@@ -2,6 +2,7 @@
 # Run the current evaluation sweep in parallel.
 #
 # Environment knobs:
+#   NS3_ROOT=<dir>           ns-3 checkout containing this module (default: module checkout)
 #   RUN_ID=<name>            run identifier (default: eval-parallel-<ts>)
 #   OUT_ROOT=<dir>           output root  (default: $NS3_ROOT/results/information-routing/$RUN_ID)
 #   MAX_PARALLEL=<int>       cap on concurrent jobs (default: 24)
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NS3_ROOT="$(cd "$MODULE_DIR/../.." && pwd)"
+NS3_ROOT="${NS3_ROOT:-$(cd "$MODULE_DIR/../.." && pwd)}"
 RUN_ID="${RUN_ID:-eval-parallel-$(date +%Y%m%d-%H%M%S)}"
 OUT_ROOT="${OUT_ROOT:-$NS3_ROOT/results/information-routing/$RUN_ID}"
 MAX_PARALLEL="${MAX_PARALLEL:-24}"
@@ -35,6 +36,7 @@ declare -A CONFIG_PATHS=(
   [exp10]="$MODULE_DIR/utils/wan_sweep_eval_trace_replay.json"
   [exp11]="$MODULE_DIR/utils/wan_sweep_eval_adversarial.json"
   [exp12]="$MODULE_DIR/utils/wan_sweep_eval_ai_workloads.json"
+  [rollout]="$MODULE_DIR/utils/wan_sweep_eval_rollout.json"
 )
 CONFIGS="${CONFIGS:-exp1 exp2 exp4 exp5 exp6 exp7 exp8 exp11}"
 
@@ -131,6 +133,11 @@ for batch in $CONFIGS; do
   python3 "$MODULE_DIR/utils/analyze_wan_sweep.py" \
     --input-dir "$OUT_ROOT/${batch}-merged" \
     --output-dir "$OUT_ROOT/${batch}-analysis" || true
+  if [ "$batch" = "rollout" ]; then
+    python3 "$MODULE_DIR/utils/analyze_rollout.py" \
+      --sweep-dir "$OUT_ROOT/${batch}-merged" \
+      --output-dir "$OUT_ROOT/${batch}-analysis"
+  fi
 done
 
 # All-batches merge.

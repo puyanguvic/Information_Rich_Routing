@@ -63,12 +63,20 @@ PathUsesLink(const InformationTopology& topology,
 }
 
 Ptr<InformationRoutingProtocol>
-GetInformationRouting(Ptr<Node> node)
+TryGetInformationRouting(Ptr<Node> node)
 {
     Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
-    NS_ABORT_MSG_IF(!ipv4, "Node has no IPv4 stack");
-    Ptr<InformationRoutingProtocol> routing =
-        Ipv4RoutingHelper::GetRouting<InformationRoutingProtocol>(ipv4->GetRoutingProtocol());
+    if (!ipv4)
+    {
+        return nullptr;
+    }
+    return Ipv4RoutingHelper::GetRouting<InformationRoutingProtocol>(ipv4->GetRoutingProtocol());
+}
+
+Ptr<InformationRoutingProtocol>
+GetInformationRouting(Ptr<Node> node)
+{
+    Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(node);
     NS_ABORT_MSG_IF(!routing, "Node does not use InformationRoutingProtocol");
     return routing;
 }
@@ -261,7 +269,12 @@ ApplyRouteMetrics(const NodeContainer& nodes,
     };
     for (const auto& record : routes.records)
     {
-        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
+        Ptr<InformationRoutingProtocol> routing =
+            TryGetInformationRouting(nodes.Get(record.source));
+        if (!routing)
+        {
+            continue;
+        }
         if (record.routeIndex >= routing->GetNRoutes())
         {
             continue;
@@ -581,6 +594,7 @@ struct RolloutTransition
 struct RolloutState
 {
     bool enabled{false};
+    bool hardLegacy{false};
     std::string placement{"random"};
     std::string mode{"base"};
     double requestedCoveragePct{0.0};
@@ -592,6 +606,8 @@ struct RolloutState
     std::vector<bool> progressEligible;
     double peakCoveragePct{0.0};
     uint32_t peakActiveRouters{0};
+    uint32_t legacyRouters{0};
+    uint32_t legacyProtocolViolations{0};
     uint64_t excludedNonprogressCandidates{0};
     std::map<std::pair<uint32_t, uint32_t>, int64_t> baseRouteByPair;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t> recordByKey;
@@ -832,7 +848,13 @@ SampleRouteSelections(NodeContainer nodes,
     for (uint32_t i = 0; i < routes.records.size(); ++i)
     {
         const auto& record = routes.records[i];
-        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
+        Ptr<InformationRoutingProtocol> routing =
+            TryGetInformationRouting(nodes.Get(record.source));
+        if (!routing)
+        {
+            deltas.push_back(0);
+            continue;
+        }
         if (record.routeIndex >= routing->GetNRoutes())
         {
             deltas.push_back(0);
@@ -944,7 +966,12 @@ CaptureBestRoutes(const NodeContainer& nodes,
             continue;
         }
 
-        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
+        Ptr<InformationRoutingProtocol> routing =
+            TryGetInformationRouting(nodes.Get(record.source));
+        if (!routing)
+        {
+            continue;
+        }
         int64_t best = routing->GetBestRouteIndex(record.destination);
         int64_t priorityBest = routing->GetBestRouteIndex(record.destination, priorityTos);
 
@@ -1078,6 +1105,58 @@ BuildRolloutOrder(const InformationTopology& topology,
     return order;
 }
 
+uint32_t
+InstallLegacyStaticForwarding(const NodeContainer& nodes,
+                              const InformationCandidateRouteSet& routes,
+                              const std::vector<bool>& deployed)
+{
+    uint32_t legacyRouters = 0;
+    for (uint32_t node = 0; node < nodes.GetN(); ++node)
+    {
+        if (node < deployed.size() && deployed[node])
+        {
+            continue;
+        }
+
+        Ptr<InformationRoutingProtocol> ir = GetInformationRouting(nodes.Get(node));
+        std::vector<const InformationCandidateRouteRecord*> baseRoutes;
+        std::set<uint32_t> destinations;
+        for (const auto& record : routes.records)
+        {
+            if (record.source != node || !destinations.insert(record.destination.Get()).second)
+            {
+                continue;
+            }
+            const int64_t best = ir->GetBestRouteIndex(record.destination);
+            auto bestRecord = std::find_if(
+                routes.records.begin(),
+                routes.records.end(),
+                [&](const InformationCandidateRouteRecord& candidate) {
+                    return candidate.source == node &&
+                           candidate.destination == record.destination &&
+                           candidate.routeIndex == static_cast<uint32_t>(best);
+                });
+            NS_ABORT_MSG_IF(best < 0 || bestRecord == routes.records.end(),
+                            "Legacy router has no stable base route for "
+                                << record.destination);
+            baseRoutes.push_back(&*bestRecord);
+        }
+
+        Ptr<Ipv4> ipv4 = nodes.Get(node)->GetObject<Ipv4>();
+        NS_ABORT_MSG_IF(!ipv4, "Legacy router has no IPv4 stack");
+        Ptr<Ipv4StaticRouting> legacy = CreateObject<Ipv4StaticRouting>();
+        ipv4->SetRoutingProtocol(legacy);
+        for (const auto* record : baseRoutes)
+        {
+            legacy->AddHostRouteTo(record->destination,
+                                   record->nextHopAddress,
+                                   record->interface);
+        }
+        ++legacyRouters;
+    }
+    return legacyRouters;
+}
+
 void
 ResetNodeFastMetrics(const NodeContainer& nodes,
                      const InformationCandidateRouteSet& routes,
@@ -1088,7 +1167,11 @@ ResetNodeFastMetrics(const NodeContainer& nodes,
     {
         control->routeMetrics.assign(routes.records.size(), RouteMetricState{});
     }
-    Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+    Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+    if (!routing)
+    {
+        return;
+    }
     for (uint32_t i = 0; i < routes.records.size(); ++i)
     {
         const auto& record = routes.records[i];
@@ -1126,8 +1209,17 @@ AuditRollout(const NodeContainer& nodes,
         std::pair<uint32_t, uint32_t> pair{record.source, record.target};
         if (selected.find(pair) == selected.end())
         {
-            selected[pair] = GetInformationRouting(nodes.Get(record.source))
-                                 ->GetBestRouteIndex(record.destination);
+            Ptr<InformationRoutingProtocol> routing =
+                TryGetInformationRouting(nodes.Get(record.source));
+            if (routing)
+            {
+                selected[pair] = routing->GetBestRouteIndex(record.destination);
+            }
+            else
+            {
+                auto base = rollout->baseRouteByPair.find(pair);
+                selected[pair] = base == rollout->baseRouteByPair.end() ? -1 : base->second;
+            }
         }
     }
 
@@ -1264,7 +1356,11 @@ ApplyRolloutTransition(const NodeContainer& nodes,
 
     for (uint32_t node = 0; node < nodes.GetN(); ++node)
     {
-        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+        Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+        if (!routing)
+        {
+            continue;
+        }
         routing->SetSelectorMode(InformationRoutingProtocol::STATIC_COST);
         if (!rollout->activeEnabled[node])
         {
@@ -1277,7 +1373,10 @@ ApplyRolloutTransition(const NodeContainer& nodes,
         {
             if (rollout->activeEnabled[node])
             {
-                Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(node));
+                Ptr<InformationRoutingProtocol> routing =
+                    TryGetInformationRouting(nodes.Get(node));
+                NS_ABORT_MSG_IF(!routing,
+                                "Rollout attempted to activate a legacy-only router");
                 for (uint32_t i = 0; i < routes.records.size(); ++i)
                 {
                     const auto& record = routes.records[i];
@@ -1605,7 +1704,12 @@ RefreshRouteMetrics(const NodeContainer& nodes,
         }
         ++state->counters.candidateEvaluations;
 
-        Ptr<InformationRoutingProtocol> routing = GetInformationRouting(nodes.Get(record.source));
+        Ptr<InformationRoutingProtocol> routing =
+            TryGetInformationRouting(nodes.Get(record.source));
+        if (!routing)
+        {
+            continue;
+        }
         if (record.routeIndex >= routing->GetNRoutes())
         {
             continue;
@@ -2453,6 +2557,7 @@ main(int argc, char* argv[])
     std::string rolloutScheduleSpec;
     std::string rolloutPlacement = "random";
     uint32_t rolloutSeed = 0;
+    bool rolloutHardLegacy = false;
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("topology", "ring, grid, tiered, or graphml", topologyType);
@@ -2591,6 +2696,9 @@ main(int argc, char* argv[])
     cmd.AddValue("rolloutSeed",
                  "Placement seed; 0 reuses RngRun for matched randomized rollout",
                  rolloutSeed);
+    cmd.AddValue("rolloutHardLegacy",
+                 "Replace routers outside peak rollout coverage with native static routing",
+                 rolloutHardLegacy);
     cmd.Parse(argc, argv);
 
     NS_ABORT_MSG_IF(tos > 255 || priorityTos > 255, "tos and priorityTos must fit in one byte");
@@ -2788,6 +2896,7 @@ main(int argc, char* argv[])
         NS_ABORT_MSG_IF(rolloutTransitions.empty(),
                         "rolloutSchedule did not contain any transitions");
         rolloutState.enabled = true;
+        rolloutState.hardLegacy = rolloutHardLegacy;
         rolloutState.placement = rolloutPlacement;
         rolloutState.desiredSelectorMode = selectorMode;
         uint32_t effectiveRolloutSeed =
@@ -2865,6 +2974,24 @@ main(int argc, char* argv[])
             {
                 ++rolloutState.excludedNonprogressCandidates;
             }
+        }
+
+        if (rolloutState.hardLegacy)
+        {
+            rolloutState.legacyRouters = InstallLegacyStaticForwarding(
+                nodes,
+                routeSet,
+                rolloutState.peakActiveEnabled);
+            for (uint32_t node = 0; node < nodes.GetN(); ++node)
+            {
+                if (!rolloutState.peakActiveEnabled[node] &&
+                    TryGetInformationRouting(nodes.Get(node)))
+                {
+                    ++rolloutState.legacyProtocolViolations;
+                }
+            }
+            NS_ABORT_MSG_IF(rolloutState.legacyProtocolViolations != 0,
+                            "A hard-legacy router still exposes InformationRoutingProtocol");
         }
 
         std::cout << "rollout_timeseries,time_s,event,mode,requested_coverage_pct,"
@@ -3160,7 +3287,8 @@ main(int argc, char* argv[])
     uint32_t maxRouteObjects = 0;
     for (uint32_t node = 0; node < nodes.GetN(); ++node)
     {
-        uint32_t routeObjects = GetInformationRouting(nodes.Get(node))->GetNRoutes();
+        Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+        uint32_t routeObjects = routing ? routing->GetNRoutes() : 0;
         totalRouteObjects += routeObjects;
         maxRouteObjects = std::max(maxRouteObjects, routeObjects);
     }
@@ -3177,6 +3305,10 @@ main(int argc, char* argv[])
         std::cout << "rollout_final_coverage_pct," << rolloutState.requestedCoveragePct << "\n";
         std::cout << "rollout_peak_coverage_pct," << rolloutState.peakCoveragePct << "\n";
         std::cout << "rollout_peak_active_routers," << rolloutState.peakActiveRouters << "\n";
+        std::cout << "rollout_hard_legacy," << (rolloutState.hardLegacy ? 1 : 0) << "\n";
+        std::cout << "rollout_legacy_routers," << rolloutState.legacyRouters << "\n";
+        std::cout << "rollout_legacy_protocol_violations,"
+                  << rolloutState.legacyProtocolViolations << "\n";
         std::cout << "rollout_excluded_nonprogress_candidates,"
                   << rolloutState.excludedNonprogressCandidates << "\n";
         std::cout << "rollout_transitions," << rolloutState.transitions << "\n";
@@ -3198,8 +3330,17 @@ main(int argc, char* argv[])
     std::cout << "traffic_mode," << trafficMode << "\n";
     std::cout << "program_profile,"
               << (programProfile.empty() ? "explicit-weights" : programProfile) << "\n";
-    std::cout << "selection_granularity,"
-              << GetInformationRouting(nodes.Get(0))->GetSelectionGranularityName() << "\n";
+    std::string selectionGranularity = "legacy-static";
+    for (uint32_t node = 0; node < nodes.GetN(); ++node)
+    {
+        Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+        if (routing)
+        {
+            selectionGranularity = routing->GetSelectionGranularityName();
+            break;
+        }
+    }
+    std::cout << "selection_granularity," << selectionGranularity << "\n";
     std::cout << "flows," << pairs.size() << "\n";
     std::cout << "latency_start_offset_s," << latencyStartOffset << "\n";
     std::cout << "control_refresh_rounds," << controlState.counters.refreshRounds << "\n";
@@ -3216,8 +3357,13 @@ main(int argc, char* argv[])
     std::cout << "route_selection,source,target,route_index,next_hop,selected,priority_selected\n";
     for (const auto& record : routeSet.records)
     {
-        const InformationRoute route =
-            GetInformationRouting(nodes.Get(record.source))->GetRoute(record.routeIndex);
+        Ptr<InformationRoutingProtocol> routing =
+            TryGetInformationRouting(nodes.Get(record.source));
+        if (!routing || record.routeIndex >= routing->GetNRoutes())
+        {
+            continue;
+        }
+        const InformationRoute route = routing->GetRoute(record.routeIndex);
         const auto priority = route.selectedByTos.find(static_cast<uint8_t>(priorityTos));
         const uint64_t prioritySelected =
             priority == route.selectedByTos.end() ? 0 : priority->second;
@@ -3231,7 +3377,12 @@ main(int argc, char* argv[])
     InformationRoutingFlowBindingCounters bindingTotal;
     for (uint32_t node = 0; node < nodes.GetN(); ++node)
     {
-        const auto counters = GetInformationRouting(nodes.Get(node))->GetFlowBindingCounters();
+        Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+        if (!routing)
+        {
+            continue;
+        }
+        const auto counters = routing->GetFlowBindingCounters();
         bindingTotal.hits += counters.hits;
         bindingTotal.misses += counters.misses;
         bindingTotal.expired += counters.expired;
@@ -3246,8 +3397,12 @@ main(int argc, char* argv[])
         InformationRoutingActionCounters total;
         for (uint32_t node = 0; node < nodes.GetN(); ++node)
         {
-            InformationRoutingActionCounters nodeCounters =
-                GetInformationRouting(nodes.Get(node))->DrainActionCounters();
+            Ptr<InformationRoutingProtocol> routing = TryGetInformationRouting(nodes.Get(node));
+            if (!routing)
+            {
+                continue;
+            }
+            InformationRoutingActionCounters nodeCounters = routing->DrainActionCounters();
             total.invocations += nodeCounters.invocations;
             total.selectedDecisions += nodeCounters.selectedDecisions;
             total.fallbackDecisions += nodeCounters.fallbackDecisions;

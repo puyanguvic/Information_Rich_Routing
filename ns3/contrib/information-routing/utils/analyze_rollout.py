@@ -25,7 +25,43 @@ STRUCTURAL_FIELDS = [
     "rollout_max_invalid_actions",
     "rollout_max_progress_violations",
     "rollout_max_inactive_base_mismatches",
+    "rollout_legacy_protocol_violations",
     "control_slow_cost_writes",
+]
+
+# Two-sided 95% Student-t critical values for 1--30 degrees of freedom.
+T95 = [
+    0.0,
+    12.706,
+    4.303,
+    3.182,
+    2.776,
+    2.571,
+    2.447,
+    2.365,
+    2.306,
+    2.262,
+    2.228,
+    2.201,
+    2.179,
+    2.160,
+    2.145,
+    2.131,
+    2.120,
+    2.110,
+    2.101,
+    2.093,
+    2.086,
+    2.080,
+    2.074,
+    2.069,
+    2.064,
+    2.060,
+    2.056,
+    2.052,
+    2.048,
+    2.045,
+    2.042,
 ]
 
 
@@ -53,7 +89,9 @@ def mean_ci95(values: list[float]) -> tuple[float, float]:
     average = statistics.mean(values)
     if len(values) < 2:
         return average, 0.0
-    return average, 1.96 * statistics.stdev(values) / math.sqrt(len(values))
+    degrees = len(values) - 1
+    critical = T95[degrees] if degrees < len(T95) else 1.96
+    return average, critical * statistics.stdev(values) / math.sqrt(len(values))
 
 
 def percent_change(current: float, baseline: float) -> float:
@@ -148,6 +186,8 @@ def aggregate_coverage(sweep: Path, rows: list[dict[str, str]]) -> list[dict[str
             "legacy_delivery_delta_pp": 100.0
             * (active_legacy["delivery_ratio"] - base_legacy["delivery_ratio"]),
             "active_routers": number(row.get("rollout_peak_active_routers")),
+            "legacy_routers": number(row.get("rollout_legacy_routers")),
+            "hard_legacy": number(row.get("rollout_hard_legacy")),
             "excluded_nonprogress_candidates": number(
                 row.get("rollout_excluded_nonprogress_candidates")
             ),
@@ -168,6 +208,8 @@ def aggregate_coverage(sweep: Path, rows: list[dict[str, str]]) -> list[dict[str
         "legacy_throughput_delta_pct",
         "legacy_delivery_delta_pp",
         "active_routers",
+        "legacy_routers",
+        "hard_legacy",
         "excluded_nonprogress_candidates",
     ]
     for (placement, coverage), group in sorted(samples.items()):
@@ -200,6 +242,10 @@ def aggregate_transitions(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
             "placement": placement,
             "peak_coverage_pct": coverage,
             "runs": len(group),
+            "hard_legacy_min": min(number(row.get("rollout_hard_legacy")) for row in group),
+            "legacy_routers_mean": statistics.mean(
+                number(row.get("rollout_legacy_routers")) for row in group
+            ),
             "shadow_proposals_mean": statistics.mean(
                 number(row.get("rollout_shadow_proposals")) for row in group
             ),

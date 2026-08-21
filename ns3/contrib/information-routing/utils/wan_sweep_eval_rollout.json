@@ -24,7 +24,8 @@
     "dampingAlpha": 0.5,
     "hysteresisThreshold": 2.0,
     "dwellTimeMs": 50.0,
-    "updateBudgetPerSec": 200.0
+    "updateBudgetPerSec": 200.0,
+    "rolloutHardLegacy": true
   },
   "seeds": [
     1,
@@ -108,105 +109,150 @@
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:active:10"
-      }
+      },
+      "seeds": [
+        2
+      ]
     },
     {
       "name": "coverage_edge_first_c25",
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:active:25"
-      }
+      },
+      "seeds": [
+        3
+      ]
     },
     {
       "name": "coverage_edge_first_c50",
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:active:50"
-      }
+      },
+      "seeds": [
+        4
+      ]
     },
     {
       "name": "coverage_edge_first_c75",
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:active:75"
-      }
+      },
+      "seeds": [
+        5
+      ]
     },
     {
       "name": "coverage_edge_first_c100",
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:active:100"
-      }
+      },
+      "seeds": [
+        6
+      ]
     },
     {
       "name": "coverage_core_first_c10",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:active:10"
-      }
+      },
+      "seeds": [
+        7
+      ]
     },
     {
       "name": "coverage_core_first_c25",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:active:25"
-      }
+      },
+      "seeds": [
+        8
+      ]
     },
     {
       "name": "coverage_core_first_c50",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:active:50"
-      }
+      },
+      "seeds": [
+        9
+      ]
     },
     {
       "name": "coverage_core_first_c75",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:active:75"
-      }
+      },
+      "seeds": [
+        10
+      ]
     },
     {
       "name": "coverage_core_first_c100",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:active:100"
-      }
+      },
+      "seeds": [
+        11
+      ]
     },
     {
       "name": "coverage_path_concentrated_c10",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:active:10"
-      }
+      },
+      "seeds": [
+        12
+      ]
     },
     {
       "name": "coverage_path_concentrated_c25",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:active:25"
-      }
+      },
+      "seeds": [
+        13
+      ]
     },
     {
       "name": "coverage_path_concentrated_c50",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:active:50"
-      }
+      },
+      "seeds": [
+        14
+      ]
     },
     {
       "name": "coverage_path_concentrated_c75",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:active:75"
-      }
+      },
+      "seeds": [
+        15
+      ]
     },
     {
       "name": "coverage_path_concentrated_c100",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:active:100"
-      }
+      },
+      "seeds": [
+        16
+      ]
     },
     {
       "name": "transition_random_c25",
@@ -220,21 +266,30 @@
       "args": {
         "rolloutPlacement": "edge-first",
         "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
-      }
+      },
+      "seeds": [
+        17
+      ]
     },
     {
       "name": "transition_core_first_c25",
       "args": {
         "rolloutPlacement": "core-first",
         "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
-      }
+      },
+      "seeds": [
+        18
+      ]
     },
     {
       "name": "transition_path_concentrated_c25",
       "args": {
         "rolloutPlacement": "path-concentrated",
         "rolloutSchedule": "0:base:0,5:shadow:25,8:canary:10,10:active:25,18:rollback:0"
-      }
+      },
+      "seeds": [
+        19
+      ]
     }
   ]
 }
