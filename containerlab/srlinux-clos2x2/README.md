@@ -10,6 +10,24 @@ The topology is a 2x2 Clos slice:
 - The startup configs install direct interface bindings and static next-hop
   groups for ECMP, single-branch preference, and policy-driven suppression.
 
+## Portable-runtime adapter
+
+`adapter/` contains a transport-neutral C++ binding from SR Linux route and
+next-hop-group objects to the shared IR core. Build its unit tests and compare
+its canonical output with the standalone runtime using:
+
+```bash
+make srlinux-conformance
+```
+
+The adapter deliberately contains no selection rule. It translates native
+snapshots, calls the portable policy/runtime, revalidates the latest native
+authority, and delegates an admitted update to `NativeActionClient`. A small C
+ABI lets the application-recovery runner use the same C++ decision and
+admission code while retaining Python only for evidence translation and SR
+Linux CLI execution. A concrete NDK, gRIBI, or gNMI client can replace that
+final callback without changing policy semantics.
+
 Run the paper recovery experiment from the repository root:
 
 ```bash
@@ -25,9 +43,16 @@ python3 tools/run_containerlab_governor_stress.py --repeats 6
 Run the application-facing recovery scaffold:
 
 ```bash
+make srlinux-adapter
 python3 tools/run_containerlab_app_recovery.py --dry-run
 python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
 ```
+
+The older recovery-CDF and governor-stress runners issue direct CLI actions.
+The application-facing runner instead loads
+`build/srlinux-adapter/libir-srlinux-c-api.so`, seeds the configured ECMP view,
+and invokes the CLI only after the shared runtime admits a candidate change.
+Use `--ir-adapter-library` to select another build location.
 
 Useful overrides:
 

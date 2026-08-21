@@ -281,6 +281,40 @@ TestActionUpdatePolicy()
 }
 
 void
+TestConsecutiveSelectionQualification()
+{
+    ir::ActionUpdatePolicy updates({true, 0.0, 0.0, 0.0, 2});
+    ir::RouteAction action{"198.51.100.0/24", 7, 0, 2, "test", "qualified"};
+
+    const auto first = updates.Admit(action, 0.0);
+    Check(first.status == ir::ActionStatus::SUPPRESSED_DWELL,
+          "the first selection should wait for qualification");
+    Check(first.reason.find("qualification count") != std::string::npos,
+          "qualification suppression should have an explicit reason");
+    Check(updates.Admit(action, 0.1).status == ir::ActionStatus::ADMITTED,
+          "a repeated selection should satisfy qualification");
+
+    action.candidateId = 1;
+    Check(updates.Admit(action, 0.2).status == ir::ActionStatus::SUPPRESSED_DWELL,
+          "a different candidate should restart qualification");
+    action.candidateId = 2;
+    Check(updates.Admit(action, 0.3).status == ir::ActionStatus::SUPPRESSED_DWELL,
+          "returning to a candidate should restart a broken sequence");
+
+    bool rejected = false;
+    try
+    {
+        ir::ActionUpdatePolicy invalid({true, 0.0, 0.0, 0.0, 0});
+        (void)invalid;
+    }
+    catch (const std::invalid_argument&)
+    {
+        rejected = true;
+    }
+    Check(rejected, "zero-length qualification must be rejected");
+}
+
+void
 TestFourInterfaceRuntime()
 {
     const TestCandidateProvider candidates;
@@ -356,6 +390,32 @@ TestResolvedRuntimeAndCanonicalRecord()
           "provider-driven Execute should reject an adapter-only runtime explicitly");
 }
 
+void
+TestSeededActiveView()
+{
+    const auto candidates = TwoCandidates();
+    const auto evidence = QueueEvidence(1.0, 9.0);
+    const ir::WeightedTrafficAwarePolicy policy;
+    const ir::RoutingRequest request{"198.51.100.9", 0};
+    const ir::TrafficContext context{0, 1.0};
+    RecordingBackend backend;
+    ir::PortableRuntime runtime(backend);
+    runtime.SeedAppliedAction({candidates.scope,
+                               candidates.generation,
+                               context.trafficClass,
+                               1,
+                               "native-seed",
+                               "existing active view"},
+                              0.0);
+
+    const auto outcome =
+        runtime.ExecuteResolved(policy, request, candidates, evidence, context, false, true);
+    Check(outcome.admission.status == ir::ActionStatus::SUPPRESSED_DUPLICATE,
+          "a seeded native view should suppress an identical first decision");
+    Check(!outcome.backend.attempted,
+          "a seeded duplicate must not produce a redundant native write");
+}
+
 } // namespace
 
 int
@@ -368,8 +428,10 @@ main()
     TestRoundRobinPreview();
     TestInvalidPolicyFallback();
     TestActionUpdatePolicy();
+    TestConsecutiveSelectionQualification();
     TestFourInterfaceRuntime();
     TestResolvedRuntimeAndCanonicalRecord();
+    TestSeededActiveView();
     std::cout << "PASS: portable IR core" << std::endl;
     return 0;
 }

@@ -1,3 +1,5 @@
+"""Legacy standalone governor model; live app recovery uses portable_runtime."""
+
 from __future__ import annotations
 
 from collections import deque

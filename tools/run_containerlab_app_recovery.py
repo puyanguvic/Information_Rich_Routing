@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from tools import run_containerlab_recovery_cdf as recovery
 from tools.ir_device_agent.audit import compare_route_state
-from tools.ir_device_agent.governor import GovernorConfig, IRGovernor
 from tools.ir_device_agent.model import EvidenceRecord, IOTaskResult
+from tools.ir_device_agent.portable_runtime import PortableIrDegGovernor
 
 
 @dataclass(frozen=True)
@@ -119,6 +119,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-parallel-io-workers", type=int, default=32)
     parser.add_argument("--governor-dwell-events", type=int, default=2)
     parser.add_argument("--governor-budget", type=int, default=1)
+    parser.add_argument("--governor-budget-window-s", type=float, default=30.0)
+    parser.add_argument("--ir-adapter-library", default=None)
     return parser.parse_args()
 
 
@@ -203,14 +205,6 @@ def run_io_task(
     )
 
 
-def action_entries(action: str) -> list[tuple[str, str]]:
-    if action == "suppress":
-        return recovery.SUPPRESS_S1
-    if action == "fallback":
-        return recovery.RESTORE_ECMP
-    raise ValueError(f"unsupported active-view action: {action}")
-
-
 def evidence_from_task(
     task: IOTaskResult,
     *,
@@ -278,12 +272,26 @@ def run_trial(
     recovery.docker_exec(args.lab_name, "s1", fault.s1_cmd, use_sudo=use_sudo, check=False)
     fault_at = time.time()
 
-    governor = IRGovernor(
-        GovernorConfig(
+    governor = None
+    if policy == "ir_governor":
+
+        def apply_candidate(candidate_id: int, _next_hop_group: str) -> bool:
+            if candidate_id == PortableIrDegGovernor.SUPPRESS_CANDIDATE:
+                entries = recovery.SUPPRESS_S1
+            elif candidate_id == PortableIrDegGovernor.STABLE_CANDIDATE:
+                entries = recovery.RESTORE_ECMP
+            else:
+                raise ValueError(f"unsupported portable candidate: {candidate_id}")
+            recovery.run_entries(args.lab_name, entries, use_sudo=use_sudo)
+            return True
+
+        governor = PortableIrDegGovernor(
+            apply_candidate,
+            library_path=args.ir_adapter_library,
             dwell_events=args.governor_dwell_events,
             action_budget=args.governor_budget,
+            budget_window_s=args.governor_budget_window_s,
         )
-    )
     tasks: list[IOTaskResult] = []
     proposals = 0
     admitted_actions = 0
@@ -333,33 +341,44 @@ def run_trial(
                 }
             )
         elif policy == "ir_governor":
+            if governor is None:
+                raise RuntimeError("portable IR governor was not initialized")
             evidence = evidence_from_task(
                 task,
                 trial_started_s=fault_at,
                 threshold_s=jitter_threshold_s,
                 evidence_idx=idx,
             )
-            proposal = governor.propose(evidence, proposal_id=f"p-{idx:03d}")
             proposals += 1
-            admission = governor.admit(proposal)
+            outcome = governor.observe(evidence)
+            action = (
+                "suppress"
+                if outcome.candidate_id == PortableIrDegGovernor.SUPPRESS_CANDIDATE
+                else "fallback"
+            )
             log_row: dict[str, str | float | int | bool] = {
                 "task_id": task.task_id,
                 "policy": policy,
-                "proposal_id": proposal.proposal_id,
-                "evidence_id": proposal.evidence_id,
-                "action": proposal.action,
-                "candidate": proposal.candidate,
-                "admitted": admission.admitted,
-                "reason": admission.reason,
-                "confidence": proposal.confidence,
-                "duration_s": 0.0,
+                "proposal_id": f"p-{idx:03d}",
+                "evidence_id": evidence.evidence_id,
+                "action": action,
+                "candidate": outcome.next_hop_group,
+                "candidate_id": outcome.candidate_id,
+                "admitted": outcome.backend_applied,
+                "reason": outcome.backend_detail or outcome.action_reason,
+                "confidence": evidence.confidence,
+                "duration_s": outcome.action_duration_s,
+                "runtime_policy": outcome.policy,
+                "decision_status": outcome.decision_status,
+                "decision_reason": outcome.decision_reason,
+                "action_status": outcome.action_status,
+                "action_generation": outcome.action_generation,
+                "backend_attempted": outcome.backend_attempted,
+                "backend_applied": outcome.backend_applied,
+                "callback_error": outcome.callback_error,
             }
-            if admission.admitted:
-                start = time.time()
-                recovery.run_entries(args.lab_name, action_entries(admission.action), use_sudo=use_sudo)
-                duration = time.time() - start
-                action_total_s += duration
-                log_row["duration_s"] = duration
+            if outcome.backend_applied:
+                action_total_s += outcome.action_duration_s
                 admitted_actions += 1
                 commits += 2
                 if first_admit_s is None:
@@ -369,6 +388,9 @@ def run_trial(
             action_log.append(log_row)
 
         time.sleep(args.task_interval_s)
+
+    if governor is not None:
+        governor.close()
 
     after_routes = route_snapshot(args.lab_name, "l1", use_sudo=use_sudo)
     (trial_dir / "routes_after_l1.txt").write_text(after_routes, encoding="utf-8")

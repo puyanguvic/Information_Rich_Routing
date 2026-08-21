@@ -21,7 +21,23 @@ This validates:
 - trace CSV headers
 - absence of machine-local absolute paths
 
-## 2. ns-3 Smoke Test
+## 2. Candidate-FIB Study
+
+The candidate study applies the same strict-progress rule used by the ns-3
+topology helper without running a packet workload:
+
+```bash
+make candidate-fib-figure
+```
+
+It writes raw topology/weight observations, an across-seed summary, and a
+manifest to `results/candidate-fib-study/`. The run covers four topology
+structures, 20 deterministic integer link-weight assignments, five stretch
+caps, and at most eight candidates per forwarding entry. The command fails if
+the audit finds a non-progress candidate edge or a cycle in any destination's
+candidate graph, then writes the paper figure in PDF, SVG, and PNG formats.
+
+## 3. ns-3 Smoke Test
 
 Install or clone ns-3 separately. The validated ns-3 version is pinned in
 `ns3/NS3_VERSION`:
@@ -49,6 +65,17 @@ NS3_ROOT=/path/to/ns-3-dev make ns3-conformance
 ```
 
 A passing run reports exact agreement for all 14 canonical epochs.
+
+The SR Linux adapter conformance gate has no containerlab or device-image
+dependency:
+
+```bash
+make srlinux-conformance
+```
+
+It compiles the thin adapter and C ABI, runs the native-boundary and Python
+binding tests, replays the same 14 epochs, and requires byte-identical output to
+the standalone core.
 
 Run the bounded native-cost smoke benchmark:
 
@@ -108,7 +135,7 @@ python3 /path/to/ns-3-dev/contrib/information-routing/utils/analyze_wan_sweep.py
   --output-dir /path/to/ns-3-dev/results/information-routing/smoke-analysis
 ```
 
-## 3. ns-3 Paper Sweeps
+## 4. ns-3 Paper Sweeps
 
 The versioned paper configs are in:
 
@@ -161,7 +188,14 @@ SEEDS="1 2 3 4 5"
 CONFIGS="exp1 exp2 exp4"
 ```
 
-## 4. SR Linux Containerlab Experiments
+## 5. SR Linux Containerlab Experiments
+
+Run `make srlinux-conformance` before the device experiments. This validates
+the shared policy, fallback, admission, generation checks, C ABI, and Python
+binding. The application runner enters that shared runtime before executing an
+admitted action through the SR Linux CLI. The recovery-CDF and governor-stress
+runners remain direct-CLI baselines; none of the runners is an NDK/gRIBI/gNMI
+transport binding.
 
 Requirements:
 
@@ -185,9 +219,14 @@ python3 tools/run_containerlab_governor_stress.py --repeats 6
 Run the application-facing recovery scaffold:
 
 ```bash
+make srlinux-adapter
 python3 tools/run_containerlab_app_recovery.py --dry-run
 python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
 ```
+
+The application runner loads the default shared library from
+`build/srlinux-adapter/libir-srlinux-c-api.so`. Pass
+`--ir-adapter-library <path>` when using another build directory.
 
 The recovery and governor scripts write CSV and raw probe outputs under
 `figs/generated/containerlab_recovery` by default. The application-facing runner
@@ -195,7 +234,7 @@ writes under `figs/generated/containerlab_app`. Use `--output-dir
 results/containerlab_recovery` or `--output-dir results/containerlab_app` if you
 want regenerated outputs under the ignored `results/` tree.
 
-## 5. Paper Figures and Tables
+## 6. Paper Figures and Tables
 
 Figure scripts expect generated CSVs and ns-3 outputs. Point them at an external
 result tree when needed:

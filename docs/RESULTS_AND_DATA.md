@@ -30,6 +30,16 @@ export IR_NS3_RESULTS=/path/to/results/information-routing
 export IR_NS3_RUN_DIR=/path/to/results/information-routing/eval-...
 ```
 
+## Candidate-FIB products
+
+`make candidate-fib-figure` writes `candidate_fib_raw.csv`,
+`candidate_fib_summary.csv`, and `manifest.json` under
+`results/candidate-fib-study/`, followed by PDF/SVG/PNG figures under its
+`figures/` subdirectory. Preserve all products: the raw CSV is the audit
+unit, the summary contains across-weight confidence intervals, and the manifest
+records the candidate rule, topology matrix, seeds, stretch caps, and safety
+counters.
+
 ## M2 runtime-cost products
 
 `make runtime-benchmark-trials` creates a self-contained run directory under

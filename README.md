@@ -11,7 +11,7 @@ be reviewed and maintained independently of the paper source.
 | --- | --- |
 | `ns3/contrib/information-routing/core/` | Platform-independent IR contracts, policies, guarded runtime, standalone tests, and cross-platform conformance trace. |
 | `ns3/contrib/information-routing/` | ns-3 contrib module, C++ routing model, WAN experiment entry point, tests, sweep runners, and versioned experiment configs. |
-| `containerlab/srlinux-clos2x2/` | Nokia SR Linux 2x2 Clos topology, startup configs, and device-validation scenario config. |
+| `containerlab/srlinux-clos2x2/` | Nokia SR Linux 2x2 Clos topology, thin C++ adapter, startup configs, and device-validation scenarios. |
 | `tools/` | Experiment runners and table aggregators used by the paper. |
 | `paper/figure-scripts/` | Figure-generation scripts that consume generated ns-3/containerlab outputs. |
 | `traces/` | Small synthetic trace fixtures used by the trace-replay sweep. |
@@ -39,6 +39,18 @@ make core-check
 The check is intentionally dependency-light. It validates required files, JSON
 syntax, Python syntax, containerlab startup-config references, trace CSV headers,
 and accidental local absolute paths.
+
+Characterize the strict-progress candidate-FIB rule independently of packet
+workloads:
+
+```bash
+make candidate-fib-figure
+```
+
+This deterministic study compares ECMP and strict-progress candidates on ring,
+grid, tiered, and Clos structures across 20 link-weight assignments. It sweeps
+the candidate stretch cap and fails if any admitted edge violates progress or
+any per-destination candidate graph contains a cycle.
 
 ## License
 
@@ -154,11 +166,24 @@ The product-router testbed is under:
 containerlab/srlinux-clos2x2
 ```
 
-The current device agent predates the portable core and remains an experiment
-driver. The planned SR Linux adapter will bind NDK/gRIBI/gNMI state and actions
-to the contracts in `core/`; it must first reproduce
-`core/test/conformance-trace.csv` before it is used for device experiments. See
-`docs/PORTABILITY.md` for the boundary and acceptance criteria.
+The thin C++ adapter under `containerlab/srlinux-clos2x2/adapter` links the same
+portable core as ns-3. It translates native route snapshots into candidate
+records, maps selected candidate IDs back to next-hop groups, and revalidates
+scope, generation, existence, and eligibility immediately before an action.
+Verify byte-for-byte agreement with the standalone core over all 14 canonical
+epochs with:
+
+```bash
+make srlinux-conformance
+```
+
+The application-recovery runner loads this adapter through a C ABI, translates
+application evidence, and invokes its existing SR Linux CLI commands only when
+the shared runtime admits an action. The legacy recovery and stress runners
+remain direct-CLI baselines. None is yet an NDK, gRIBI, or gNMI implementation;
+the conformance result establishes shared policy and action-admission semantics,
+while live runs remain device-actuation evidence. See `docs/PORTABILITY.md` for
+the boundary and acceptance criteria.
 
 The paper's repeated recovery and governor-stress experiments are:
 
@@ -170,14 +195,16 @@ python3 tools/run_containerlab_governor_stress.py --repeats 6
 The application-facing SR Linux recovery scaffold is:
 
 ```bash
+make srlinux-adapter
 python3 tools/run_containerlab_app_recovery.py --dry-run
 python3 tools/run_containerlab_app_recovery.py --repeats 5 --workers 1 8 16 32
 ```
 
 This runner is the newer device-validation path. It keeps the original probe
-experiments intact, but adds storage-like IO tasks, proposal/admission counts,
-SR Linux commit timing, and route/config audit fields so the paper can report
-service-visible jitter/hang alongside the route-state boundary.
+experiments intact, but adds storage-like IO tasks, shared-runtime
+proposal/admission outcomes, SR Linux commit timing, and route/config audit
+fields so the paper can report service-visible jitter/hang alongside the
+route-state boundary.
 
 These scripts require Docker, containerlab, sudo privileges unless `--no-sudo`
 is used, and access to the SR Linux image configured in the topology.

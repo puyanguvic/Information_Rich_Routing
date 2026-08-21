@@ -10,7 +10,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_PATHS = [
@@ -39,19 +38,33 @@ REQUIRED_PATHS = [
     "ns3/contrib/information-routing/utils/wan_sweep_eval_program_functions.json",
     "containerlab/srlinux-clos2x2/clos2x2_srlinux.clab.yaml",
     "containerlab/srlinux-clos2x2/nokia_srlinux.yaml",
+    "containerlab/srlinux-clos2x2/adapter/CMakeLists.txt",
+    "containerlab/srlinux-clos2x2/adapter/README.md",
+    "containerlab/srlinux-clos2x2/adapter/srlinux-runtime-adapter.cc",
+    "containerlab/srlinux-clos2x2/adapter/srlinux-runtime-adapter.h",
+    "containerlab/srlinux-clos2x2/adapter/srlinux-c-api.cc",
+    "containerlab/srlinux-clos2x2/adapter/srlinux-c-api.h",
+    "containerlab/srlinux-clos2x2/adapter/test/srlinux-c-api-test.cc",
+    "containerlab/srlinux-clos2x2/adapter/test/srlinux-runtime-adapter-test.cc",
+    "containerlab/srlinux-clos2x2/adapter/tools/srlinux-trace-replay.cc",
     "tools/run_containerlab_recovery_cdf.py",
     "tools/run_containerlab_governor_stress.py",
     "tools/run_containerlab_app_recovery.py",
+    "tools/ir_device_agent/portable_runtime.py",
     "experiments/containerlab/app_recovery.yaml",
     "docs/PORTABILITY.md",
     "scripts/test_ns3_conformance.sh",
+    "scripts/test_srlinux_conformance.sh",
+    "scripts/test_srlinux_python_binding.py",
     "scripts/run_runtime_benchmark.sh",
     "scripts/run_runtime_benchmark_trials.sh",
+    "scripts/analyze_candidate_fib.py",
     "scripts/aggregate_runtime_benchmark.py",
     "scripts/generate_framework_evaluation_tables.py",
     "scripts/plot_program_functions.py",
     "scripts/validate_runtime_benchmark.py",
     "paper/figure-scripts/draw_runtime_cost_m2.py",
+    "paper/figure-scripts/draw_candidate_fib_study.py",
     "traces/fb_hadoop_synth_load1x.csv",
 ]
 

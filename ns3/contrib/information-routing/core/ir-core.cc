@@ -398,6 +398,10 @@ ActionUpdatePolicy::Configure(ActionUpdateConfig config)
     {
         throw std::invalid_argument("action update parameters must be non-negative");
     }
+    if (config.minConsecutiveSelections == 0)
+    {
+        throw std::invalid_argument("minimum consecutive selections must be positive");
+    }
     if (config.tokenRatePerSecond > 0.0 && config.tokenBurst == 0.0)
     {
         config.tokenBurst = config.tokenRatePerSecond;
@@ -447,15 +451,40 @@ ActionUpdatePolicy::Admit(const RouteAction& action, double nowSeconds)
         throw std::invalid_argument("action time must be finite");
     }
 
-    const auto found = m_active.find(ContextKey(action));
+    const std::string contextKey = ContextKey(action);
+    const auto found = m_active.find(contextKey);
     if (found != m_active.end())
     {
         if (m_config.suppressDuplicates && found->second.generation == action.generation &&
             found->second.candidateId == action.candidateId)
         {
+            m_pending.erase(contextKey);
             return {ActionStatus::SUPPRESSED_DUPLICATE,
                     "active view already matches candidate and generation"};
         }
+    }
+
+    if (m_config.minConsecutiveSelections > 1)
+    {
+        PendingAction& pending = m_pending[contextKey];
+        if (pending.generation != action.generation ||
+            pending.candidateId != action.candidateId)
+        {
+            pending = {action.generation, action.candidateId, 1};
+        }
+        else
+        {
+            ++pending.consecutiveSelections;
+        }
+        if (pending.consecutiveSelections < m_config.minConsecutiveSelections)
+        {
+            return {ActionStatus::SUPPRESSED_DWELL,
+                    "candidate selection has not met the qualification count"};
+        }
+    }
+
+    if (found != m_active.end())
+    {
         if (m_config.dwellSeconds > 0.0 &&
             (nowSeconds - found->second.appliedAtSeconds) < m_config.dwellSeconds)
         {
@@ -478,13 +507,16 @@ ActionUpdatePolicy::Admit(const RouteAction& action, double nowSeconds)
 void
 ActionUpdatePolicy::RecordApplied(const RouteAction& action, double nowSeconds)
 {
-    m_active[ContextKey(action)] = {action.generation, action.candidateId, nowSeconds};
+    const std::string contextKey = ContextKey(action);
+    m_active[contextKey] = {action.generation, action.candidateId, nowSeconds};
+    m_pending.erase(contextKey);
 }
 
 void
 ActionUpdatePolicy::Reset()
 {
     m_active.clear();
+    m_pending.clear();
     m_tokens = 0.0;
     m_lastRefillSeconds = 0.0;
     m_bucketInitialized = false;
@@ -696,6 +728,12 @@ void
 PortableRuntime::ConfigureUpdatePolicy(ActionUpdateConfig updateConfig)
 {
     m_updatePolicy.Configure(std::move(updateConfig));
+}
+
+void
+PortableRuntime::SeedAppliedAction(const RouteAction& action, double nowSeconds)
+{
+    m_updatePolicy.RecordApplied(action, nowSeconds);
 }
 
 } // namespace ir

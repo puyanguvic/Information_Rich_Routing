@@ -6,6 +6,7 @@ import csv
 import os
 import re
 import shlex
+import shutil
 import statistics
 import subprocess
 import time
@@ -249,7 +250,8 @@ def run_containerlab(args: argparse.Namespace, subcommand: list[str], *, use_sud
         run(with_sudo(containerlab_docker_cmd(args, subcommand), use_sudo=use_sudo), check=check)
         return
 
-    cmd = [args.clab_bin, *subcommand]
+    clab_bin = shutil.which(args.clab_bin) or args.clab_bin
+    cmd = [clab_bin, *subcommand]
     if use_sudo:
         full_cmd = ["sudo", *[f"{k}={v}" for k, v in sorted(containerlab_env(args).items())], *cmd]
         run(full_cmd, check=check)

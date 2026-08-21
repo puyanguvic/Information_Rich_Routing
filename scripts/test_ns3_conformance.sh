@@ -18,7 +18,7 @@ trace="$artifact_root/ns3/contrib/information-routing/core/test/conformance-trac
 comparison_dir=$(mktemp -d /tmp/ir-ns3-conformance.XXXXXX)
 
 cleanup_comparison_dir() {
-    rm -rf -- "$comparison_dir"
+    rm -r -- "$comparison_dir"
 }
 trap cleanup_comparison_dir EXIT
 

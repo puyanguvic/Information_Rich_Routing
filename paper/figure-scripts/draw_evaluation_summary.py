@@ -183,6 +183,8 @@ def find_heatmap_fill_dir() -> Path | None:
 def configure_style() -> None:
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
         "font.size": 8.0,
         "axes.titlesize": 8.5,
         "axes.labelsize": 8.0,

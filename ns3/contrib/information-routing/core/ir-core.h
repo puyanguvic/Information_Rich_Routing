@@ -280,6 +280,7 @@ struct ActionUpdateConfig
     double dwellSeconds{0.0};
     double tokenRatePerSecond{0.0};
     double tokenBurst{0.0};
+    std::uint32_t minConsecutiveSelections{1};
 };
 
 struct ActionAdmission
@@ -315,11 +316,19 @@ class ActionUpdatePolicy
         double appliedAtSeconds{0.0};
     };
 
+    struct PendingAction
+    {
+        std::uint64_t generation{0};
+        CandidateId candidateId{0};
+        std::uint32_t consecutiveSelections{0};
+    };
+
     std::string ContextKey(const RouteAction& action) const;
     void Refill(double nowSeconds);
 
     ActionUpdateConfig m_config;
     std::map<std::string, ActiveAction> m_active;
+    std::map<std::string, PendingAction> m_pending;
     double m_tokens{0.0};
     double m_lastRefillSeconds{0.0};
     bool m_bucketInitialized{false};
@@ -425,6 +434,7 @@ class PortableRuntime
                                    bool applyAction = true);
 
     void ConfigureUpdatePolicy(ActionUpdateConfig updateConfig);
+    void SeedAppliedAction(const RouteAction& action, double nowSeconds);
     void ResetUpdateState();
 
   private:

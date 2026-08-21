@@ -7,7 +7,7 @@ core_source="$artifact_root/ns3/contrib/information-routing/core"
 core_build=$(mktemp -d /tmp/ir-core-build.XXXXXX)
 
 cleanup_core_build() {
-    rm -rf -- "$core_build"
+    rm -r -- "$core_build"
 }
 trap cleanup_core_build EXIT
 

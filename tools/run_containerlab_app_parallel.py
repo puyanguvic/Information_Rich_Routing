@@ -65,6 +65,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-parallel-io-workers", type=int, default=32)
     parser.add_argument("--governor-dwell-events", type=int, default=2)
     parser.add_argument("--governor-budget", type=int, default=1)
+    parser.add_argument("--governor-budget-window-s", type=float, default=30.0)
+    parser.add_argument("--ir-adapter-library", default=None)
     return parser.parse_args()
 
 
@@ -144,7 +146,11 @@ def shard_command(args: argparse.Namespace, shard: Shard) -> list[str]:
         str(args.governor_dwell_events),
         "--governor-budget",
         str(args.governor_budget),
+        "--governor-budget-window-s",
+        str(args.governor_budget_window_s),
     ]
+    if args.ir_adapter_library:
+        cmd.extend(["--ir-adapter-library", args.ir_adapter_library])
     if args.faults:
         cmd.extend(["--faults", *args.faults])
     if args.no_sudo:
