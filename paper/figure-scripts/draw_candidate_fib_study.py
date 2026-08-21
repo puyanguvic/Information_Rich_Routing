@@ -17,6 +17,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = ROOT / "results" / "candidate-fib-study"
 DEFAULT_OUTPUT = DEFAULT_INPUT / "figures"
+
+
+def normalize_svg(path: Path) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(line.rstrip() for line in lines) + "\n", encoding="utf-8")
 TOPOLOGIES = ("Ring-32", "Grid-8x8", "Tiered-42", "Clos-16x8")
 TOPOLOGY_LABELS = ("Ring\n32", "Grid\n64", "Tiered\n42", "Clos\n24")
 BETAS = ("1", "1.25", "1.5", "2", "inf")
@@ -237,12 +242,15 @@ def main() -> None:
     figure.tight_layout(w_pad=1.2, pad=0.45)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for suffix in ("pdf", "svg", "png"):
+        output = args.output_dir / f"{args.stem}.{suffix}"
         figure.savefig(
-            args.output_dir / f"{args.stem}.{suffix}",
+            output,
             dpi=300,
             bbox_inches="tight",
             pad_inches=0.035,
         )
+        if suffix == "svg":
+            normalize_svg(output)
     plt.close(figure)
 
 
